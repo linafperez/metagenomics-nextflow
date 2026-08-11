@@ -1,0 +1,36 @@
+# Nextflow
+.nextflow*
+work/
+results/
+.nextflow.log*
+
+# Sequencing data
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.sra
+
+# Alignment files
+*.bam
+*.bai
+*.sam
+
+# Large biological data
+RAW/
+raw/
+databases/
+database/
+db/
+
+# Local environment and secrets
+.env
+*.key
+
+# Machine-specific samplesheets
+samplesheet.local.csv
+samplesheet.hpc.csv
+
+# OS files
+.DS_Store
+Thumbs.db
