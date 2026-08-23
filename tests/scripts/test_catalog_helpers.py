@@ -25,6 +25,29 @@ def write_fasta(path: Path, identifier: str, length: int) -> None:
 
 
 class CatalogHelperTests(unittest.TestCase):
+    def test_normalize_coverm_abundance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            wide = root / "wide.tsv"
+            wide.write_text(
+                "Genome\tsample_A Relative Abundance (%)\tsample_A Mean\t"
+                "sample_A Covered Fraction\tsample_A Length\n"
+                "MAG_001\t50\t12.5\t0.8\t2400\n",
+                encoding="utf-8",
+            )
+            long_table = root / "long.tsv"
+            run_script(
+                "normalize_coverm_abundance.py",
+                "--input",
+                wide,
+                "--output",
+                long_table,
+            )
+            with long_table.open(encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual(rows[0]["sample"], "sample_A")
+            self.assertEqual(rows[0]["covered_fraction"], "0.8")
+
     def test_filter_and_strict_quality_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
