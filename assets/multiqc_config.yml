@@ -1,0 +1,65 @@
+title: "Shotgun metagenomics processing evaluation"
+report_header_info:
+  - Pipeline: "metagenomics-nextflow"
+report_comment: >-
+  Aggregated quality-control, assembly, MAG-quality, and taxonomic-assignment
+  results from the shotgun metagenomics workflow.
+
+no_version_check: true
+show_analysis_paths: false
+show_analysis_time: true
+export_plots: false
+use_filename_as_sample_name:
+  - fastp
+
+module_order:
+  - fastqc:
+      anchor: "fastqc_raw"
+      name: "FastQC (raw reads)"
+      info: "Read quality before trimming and filtering."
+      path_filters:
+        - "*_raw_*_fastqc.zip"
+  - fastp
+  - fastqc:
+      anchor: "fastqc_clean"
+      name: "FastQC (clean reads)"
+      info: "Read quality after fastp trimming and filtering."
+      path_filters:
+        - "*_clean_*_fastqc.zip"
+  - bowtie2
+  - megahit
+  - quast
+  - checkm2
+  - gtdbtk
+
+quast_config:
+  contig_length_multiplier: 0.001
+  contig_length_suffix: "Kbp"
+  total_length_multiplier: 0.000001
+  total_length_suffix: "Mbp"
+  total_number_contigs_multiplier: 0.001
+  total_number_contigs_suffix: "K"
+
+sp:
+  quast:
+    - fn: "report.tsv"
+      contents: "Assembly\t"
+      num_lines: 2
+    - fn: "*.metaquast.report.tsv"
+      contents: "Assembly\t"
+      num_lines: 2
+
+fn_ignore_files:
+  - "*.fastq"
+  - "*.fastq.gz"
+  - "*.fq"
+  - "*.fq.gz"
+  - "*.fa"
+  - "*.fa.gz"
+  - "*.fna"
+  - "*.fna.gz"
+  - "*.fasta"
+  - "*.fasta.gz"
+  - "*.sam"
+  - "*.bam"
+  - "*.bai"

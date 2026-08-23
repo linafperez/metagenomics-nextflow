@@ -1,0 +1,39 @@
+name: multiqc
+description: Aggregate supported bioinformatics reports into one processing-evaluation report
+keywords:
+  - quality control
+  - reporting
+  - metagenomics
+tools:
+  - multiqc:
+      description: Aggregate analysis logs and reports into a single HTML report
+      homepage: https://multiqc.info/
+      documentation: https://docs.seqera.io/multiqc/
+      licence: ["GPL-3.0-or-later"]
+input:
+  - meta:
+      type: map
+      description: Report metadata
+  - reports:
+      type: file
+      description: Files or directories to scan for outputs supported by MultiQC
+  - multiqc_config:
+      type: file
+      description: MultiQC YAML configuration
+      pattern: "*.{yml,yaml}"
+output:
+  - report:
+      type: file
+      description: Standalone MultiQC HTML report
+      pattern: "*.multiqc.html"
+  - data:
+      type: directory
+      description: Parsed MultiQC data tables and metadata
+      pattern: "*.multiqc_data"
+  - log:
+      type: file
+      description: MultiQC console log
+      pattern: "*.multiqc.log"
+  - versions:
+      type: tuple
+      description: Process, tool, and pinned version
