@@ -1,0 +1,43 @@
+name: spades
+description: Coassemble paired-end metagenomic reads with metaSPAdes
+keywords:
+  - assembly
+  - metagenomics
+  - coassembly
+tools:
+  - spades:
+      description: St. Petersburg genome assembler
+      homepage: https://github.com/ablab/spades
+      documentation: https://ablab.github.io/spades/
+      licence: ["GPL-2.0"]
+input:
+  - meta:
+      type: map
+      description: Coassembly metadata
+  - reads:
+      type: file
+      description: Flattened, ordered paired-end FASTQ files
+output:
+  - contigs:
+      type: file
+      description: Coassembled contigs
+      pattern: "*.contigs.fa"
+  - scaffolds:
+      type: file
+      description: Coassembled scaffolds
+      pattern: "*.scaffolds.fa"
+  - graph:
+      type: file
+      description: SPAdes assembly graph
+      pattern: "*.assembly.gfa"
+  - log:
+      type: file
+      description: SPAdes execution log
+      pattern: "*.spades.log"
+  - params:
+      type: file
+      description: SPAdes run parameters
+      pattern: "*.spades.params.txt"
+  - versions:
+      type: tuple
+      description: Process, tool, and pinned version
