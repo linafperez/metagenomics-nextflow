@@ -1,0 +1,31 @@
+name: megahit
+description: Coassemble paired-end metagenomic reads with MEGAHIT
+keywords:
+  - assembly
+  - metagenomics
+  - coassembly
+tools:
+  - megahit:
+      description: Ultra-fast single-node metagenomic assembler
+      homepage: https://github.com/voutcn/megahit
+      documentation: https://github.com/voutcn/megahit
+      licence: ["GPL-3.0"]
+input:
+  - meta:
+      type: map
+      description: Coassembly metadata
+  - reads:
+      type: file
+      description: Flattened, ordered paired-end FASTQ files
+output:
+  - contigs:
+      type: file
+      description: Coassembled contigs
+      pattern: "*.contigs.fa"
+  - log:
+      type: file
+      description: MEGAHIT execution log
+      pattern: "*.megahit.log"
+  - versions:
+      type: tuple
+      description: Process, tool, and pinned version

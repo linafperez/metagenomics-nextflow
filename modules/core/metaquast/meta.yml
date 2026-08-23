@@ -1,0 +1,39 @@
+name: metaquast
+description: Evaluate metagenomic assemblies with MetaQUAST
+keywords:
+  - assembly
+  - quality control
+  - metagenomics
+tools:
+  - metaquast:
+      description: Reference-aware and reference-free metagenome assembly evaluator
+      homepage: https://github.com/ablab/quast
+      documentation: https://quast.sourceforge.net/docs/manual.html
+      licence: ["GPL-2.0"]
+input:
+  - meta:
+      type: map
+      description: Assembly metadata
+  - assembly:
+      type: file
+      description: Metagenomic assembly FASTA
+output:
+  - results:
+      type: directory
+      description: Complete MetaQUAST result directory
+      pattern: "*.metaquast"
+  - report_tsv:
+      type: file
+      description: Tab-separated assembly statistics
+      pattern: "*.metaquast.report.tsv"
+  - report_html:
+      type: file
+      description: Interactive MetaQUAST report
+      pattern: "*.metaquast.report.html"
+  - log:
+      type: file
+      description: MetaQUAST execution log
+      pattern: "*.metaquast.log"
+  - versions:
+      type: tuple
+      description: Process, tool, and pinned version
