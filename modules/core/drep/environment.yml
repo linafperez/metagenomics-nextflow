@@ -1,0 +1,6 @@
+name: drep-3.6.2
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::drep=3.6.2

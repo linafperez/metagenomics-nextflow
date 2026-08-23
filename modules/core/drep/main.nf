@@ -1,0 +1,77 @@
+process DREP {
+    tag "${meta.id}:${stage}"
+    label 'process_high'
+
+    container 'quay.io/biocontainers/drep:3.6.2--pyhdfd78af_0'
+    conda "${moduleDir}/environment.yml"
+
+    input:
+    tuple val(meta), path(mags, arity: '1..*')
+    path genome_info
+    val ani
+    val coverage
+    val stage
+
+    output:
+    tuple val(meta), path('*.representatives/*.fa', arity: '1..*'), emit: representatives
+    tuple val(meta), path('*.clusters.csv'), emit: clusters
+    tuple val(meta), path('*.drep'), emit: results
+    tuple val(meta), path('*.drep.log'), emit: log
+    tuple val("${task.process}"), val('drep'), val('3.6.2'), emit: versions
+
+    when:
+    task.ext.when == null || task.ext.when
+
+    script:
+    def args = task.ext.args ?: ''
+    def basePrefix = task.ext.prefix ?: meta.id
+    def prefix = "${basePrefix}_${stage}"
+    def magFiles = mags instanceof List ? mags : [mags]
+    def links = magFiles.collect { mag ->
+        "ln -s \"${mag}\" \"input_mags/${mag.simpleName}.fa\""
+    }.join('\n')
+
+    """
+    mkdir -p input_mags
+    ${links}
+
+    dRep dereplicate "${prefix}.drep" \\
+        -g input_mags/*.fa \\
+        --genomeInfo "${genome_info}" \\
+        -p ${task.cpus} \\
+        -comp 0 \\
+        -con 100 \\
+        -pa 0.90 \\
+        -sa ${ani} \\
+        -nc ${coverage} \\
+        -cm larger \\
+        --S_algorithm fastANI \\
+        --multiround_primary_clustering \\
+        ${args} \\
+        > "${prefix}.drep.log" 2>&1
+
+    mkdir -p "${prefix}.representatives"
+    cp "${prefix}.drep"/dereplicated_genomes/*.fa "${prefix}.representatives/"
+    cp "${prefix}.drep/data_tables/Cdb.csv" "${prefix}.clusters.csv"
+    """
+
+    stub:
+    def basePrefix = task.ext.prefix ?: meta.id
+    def prefix = "${basePrefix}_${stage}"
+    def magFiles = mags instanceof List ? mags : [mags]
+    def selected = (ani as double) <= 0.951 ? magFiles.take(1) : magFiles
+    def copies = selected.collect { mag ->
+        "cp \"${mag}\" \"${prefix}.drep/dereplicated_genomes/${mag.simpleName}.fa\"\ncp \"${mag}\" \"${prefix}.representatives/${mag.simpleName}.fa\""
+    }.join('\n')
+    def clusterRows = magFiles.withIndex().collect { mag, index ->
+        def cluster = (ani as double) <= 0.951 ? 'secondary_1' : "secondary_${index + 1}"
+        "${mag.simpleName}.fa,primary_1,${cluster}"
+    }.join('\n')
+    """
+    mkdir -p "${prefix}.drep/dereplicated_genomes" "${prefix}.drep/data_tables" "${prefix}.representatives"
+    ${copies}
+    printf 'genome,primary_cluster,secondary_cluster\n${clusterRows}\n' > "${prefix}.drep/data_tables/Cdb.csv"
+    cp "${prefix}.drep/data_tables/Cdb.csv" "${prefix}.clusters.csv"
+    printf 'dRep stub ${stage} completed at ANI ${ani}\n' > "${prefix}.drep.log"
+    """
+}
