@@ -1,0 +1,5 @@
+name: collect_versions-1.0.0
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
