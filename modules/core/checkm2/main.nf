@@ -22,12 +22,13 @@ process CHECKM2 {
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: meta.id
     def binFiles = bins instanceof List ? bins : [bins]
-    def names = binFiles.collect { bin -> bin.simpleName }
+    def names = binFiles.collect { bin -> bin.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '') }
     if (names.toSet().size() != names.size()) {
         error "CheckM2 input bin identifiers are not unique"
     }
     def links = binFiles.collect { bin ->
-        "ln -s \"${bin}\" \"input_bins/${bin.simpleName}.fa\""
+        def binId = bin.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
+        "ln -s \"${bin}\" \"input_bins/${binId}.fa\""
     }.join('\n')
 
     """
@@ -59,7 +60,8 @@ process CHECKM2 {
     def prefix = task.ext.prefix ?: meta.id
     def binFiles = bins instanceof List ? bins : [bins]
     def rows = binFiles.withIndex().collect { bin, index ->
-        "${bin.simpleName}\t${95.0 + (index % 3)}\t${1.0 + (index % 2)}\tNeural Network (Specific Model)\t11\t0.90\t2000\t300\t2400\t50.0\t8\tNone"
+        def binId = bin.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
+        "${binId}\t${95.0 + (index % 3)}\t${1.0 + (index % 2)}\tNeural Network (Specific Model)\t11\t0.90\t2000\t300\t2400\t50.0\t8\tNone"
     }.join('\n')
     """
     mkdir -p "${prefix}.checkm2"

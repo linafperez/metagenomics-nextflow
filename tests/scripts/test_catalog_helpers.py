@@ -70,14 +70,14 @@ class CatalogHelperTests(unittest.TestCase):
             self.assertNotIn(">short", (root / "filtered.fa").read_text(encoding="utf-8"))
 
             bins = []
-            for identifier in ("pass", "equal_completeness", "equal_contamination"):
+            for identifier in ("pass.bin.1", "equal_completeness", "equal_contamination"):
                 path = root / f"{identifier}.fa"
                 write_fasta(path, identifier, 1600)
                 bins.append(path)
             quality = root / "quality.tsv"
             quality.write_text(
                 "Name\tCompleteness\tContamination\n"
-                "pass\t91\t4\n"
+                "pass.bin.1\t91\t4\n"
                 "equal_completeness\t90\t1\n"
                 "equal_contamination\t99\t5\n",
                 encoding="utf-8",
@@ -101,7 +101,10 @@ class CatalogHelperTests(unittest.TestCase):
                 "--assembler",
                 "megahit",
             )
-            self.assertEqual([path.name for path in (root / "selected").glob("*.fa")], ["pass.fa"])
+            self.assertEqual(
+                [path.name for path in (root / "selected").glob("*.fa")],
+                ["pass.bin.1.fa"],
+            )
 
     def test_combine_and_finalize_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

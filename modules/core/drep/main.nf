@@ -28,7 +28,8 @@ process DREP {
     def prefix = "${basePrefix}_${stage}"
     def magFiles = mags instanceof List ? mags : [mags]
     def links = magFiles.collect { mag ->
-        "ln -s \"${mag}\" \"input_mags/${mag.simpleName}.fa\""
+        def magId = mag.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
+        "ln -s \"${mag}\" \"input_mags/${magId}.fa\""
     }.join('\n')
 
     """
@@ -61,11 +62,13 @@ process DREP {
     def magFiles = mags instanceof List ? mags : [mags]
     def selected = (ani as double) <= 0.951 ? magFiles.take(1) : magFiles
     def copies = selected.collect { mag ->
-        "cp \"${mag}\" \"${prefix}.drep/dereplicated_genomes/${mag.simpleName}.fa\"\ncp \"${mag}\" \"${prefix}.representatives/${mag.simpleName}.fa\""
+        def magId = mag.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
+        "cp \"${mag}\" \"${prefix}.drep/dereplicated_genomes/${magId}.fa\"\ncp \"${mag}\" \"${prefix}.representatives/${magId}.fa\""
     }.join('\n')
     def clusterRows = magFiles.withIndex().collect { mag, index ->
         def cluster = (ani as double) <= 0.951 ? 'secondary_1' : "secondary_${index + 1}"
-        "${mag.simpleName}.fa,primary_1,${cluster}"
+        def magId = mag.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
+        "${magId}.fa,primary_1,${cluster}"
     }.join('\n')
     """
     mkdir -p "${prefix}.drep/dereplicated_genomes" "${prefix}.drep/data_tables" "${prefix}.representatives"

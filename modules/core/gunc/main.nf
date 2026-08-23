@@ -22,12 +22,13 @@ process GUNC {
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: meta.id
     def binFiles = bins instanceof List ? bins : [bins]
-    def names = binFiles.collect { bin -> bin.simpleName }
+    def names = binFiles.collect { bin -> bin.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '') }
     if (names.toSet().size() != names.size()) {
         error "GUNC input bin identifiers are not unique"
     }
     def links = binFiles.collect { bin ->
-        "ln -s \"${bin}\" \"input_bins/${bin.simpleName}.fa\""
+        def binId = bin.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
+        "ln -s \"${bin}\" \"input_bins/${binId}.fa\""
     }.join('\n')
 
     """
@@ -54,7 +55,8 @@ process GUNC {
     def prefix = task.ext.prefix ?: meta.id
     def binFiles = bins instanceof List ? bins : [bins]
     def rows = binFiles.withIndex().collect { bin, index ->
-        "${bin.simpleName}\t${100 + index}\t0.02\t0.01\t0.05\tgenus\t0.90\tTrue"
+        def binId = bin.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
+        "${binId}\t${100 + index}\t0.02\t0.01\t0.05\tgenus\t0.90\tTrue"
     }.join('\n')
     """
     mkdir -p "${prefix}.gunc"

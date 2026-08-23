@@ -40,7 +40,7 @@ def fasta_stem(path_or_name: str) -> str:
     for suffix in (".fasta.gz", ".fna.gz", ".fa.gz", ".fasta", ".fna", ".fa"):
         if name.lower().endswith(suffix):
             return name[: -len(suffix)]
-    return Path(name).stem
+    return name
 
 
 def load_quality(path: Path) -> dict[str, tuple[float, float]]:
