@@ -1,0 +1,7 @@
+name: phylophlan
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::phylophlan=3.1.1
+  - bioconda::iqtree=3.0.1

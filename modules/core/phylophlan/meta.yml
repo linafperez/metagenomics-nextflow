@@ -1,0 +1,57 @@
+name: phylophlan
+description: Reconstruct a marker-gene phylogeny from the final MAG catalog
+keywords:
+  - phylogenomics
+  - metagenomics
+  - MAG
+tools:
+  - phylophlan:
+      description: Phylogenomic analysis of microbial genomes and MAGs
+      homepage: https://github.com/biobakery/phylophlan
+      documentation: https://github.com/biobakery/biobakery/wiki/PhyloPhlAn-3-Example-02-Tree-of-life
+      licence: ["MIT"]
+  - iqtree:
+      description: Maximum-likelihood phylogenetic inference backend
+      homepage: https://github.com/iqtree/iqtree3
+      documentation: https://iqtree.github.io/doc/
+      licence: ["GPL-2.0-or-later"]
+input:
+  - meta:
+      type: map
+      description: Final-catalog metadata
+  - mags:
+      type: file
+      description: Collection of uniquely named MAG FASTA files
+      pattern: "*.{fa,fna,fasta,fa.gz,fna.gz,fasta.gz}"
+  - phylophlan_db:
+      type: directory
+      description: One prepared PhyloPhlAn marker database directory
+  - phylophlan_config:
+      type: file
+      description: PhyloPhlAn configuration with IQ-TREE as tree1
+      pattern: "*.cfg"
+output:
+  - tree:
+      type: file
+      description: Final phylogenomic tree in Newick format
+      pattern: "*.phylophlan.tree.nwk"
+  - alignment:
+      type: file
+      description: Concatenated conserved-marker alignment
+      pattern: "*.phylophlan.alignment.fasta"
+  - results:
+      type: directory
+      description: Complete PhyloPhlAn output
+      pattern: "*.phylophlan"
+  - log:
+      type: file
+      description: PhyloPhlAn console log
+      pattern: "*.phylophlan.log"
+  - versions:
+      type: tuple
+      description: Process, tool, and pinned PhyloPhlAn version
+  - versions_iqtree:
+      type: tuple
+      description: Process, tool, and pinned IQ-TREE version
+notes:
+  - The stock PhyloPhlAn 3.1.1 BioContainer predates IQ-TREE 3.0.1. Set task.ext.container to a pinned combined image for container execution; the module rejects other IQ-TREE versions.

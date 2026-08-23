@@ -1,0 +1,43 @@
+name: gtdbtk_classify
+description: Classify MAGs against the Genome Taxonomy Database
+keywords:
+  - taxonomy
+  - metagenomics
+  - MAG
+tools:
+  - gtdbtk:
+      description: Genome Taxonomy Database Toolkit
+      homepage: https://github.com/Ecogenomics/GTDBTk
+      documentation: https://ecogenomics.github.io/GTDBTk/commands/classify_wf.html
+      licence: ["GPL-3.0-or-later"]
+input:
+  - meta:
+      type: map
+      description: Final-catalog metadata
+  - mags:
+      type: file
+      description: Collection of uniquely named MAG FASTA files
+      pattern: "*.{fa,fna,fasta,fa.gz,fna.gz,fasta.gz}"
+  - gtdbtk_db:
+      type: directory
+      description: Unpacked GTDB-Tk release 226 reference package
+output:
+  - bac120_summary:
+      type: file
+      description: Bacterial taxonomic classifications
+      pattern: "*.gtdbtk.bac120.summary.tsv"
+  - ar53_summary:
+      type: file
+      description: Archaeal taxonomic classifications
+      pattern: "*.gtdbtk.ar53.summary.tsv"
+  - results:
+      type: directory
+      description: Complete GTDB-Tk classify_wf output
+      pattern: "*.gtdbtk"
+  - log:
+      type: file
+      description: GTDB-Tk console log
+      pattern: "*.gtdbtk.log"
+  - versions:
+      type: tuple
+      description: Process, tool, and pinned version
