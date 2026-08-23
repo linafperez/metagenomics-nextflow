@@ -1,0 +1,5 @@
+name: functional-annotation-integration
+channels:
+  - conda-forge
+dependencies:
+  - conda-forge::python=3.12

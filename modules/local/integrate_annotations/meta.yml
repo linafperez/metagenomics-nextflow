@@ -1,0 +1,38 @@
+name: integrate_annotations
+description: Consolidate eggNOG-mapper and InterProScan annotations per MAG protein
+keywords:
+  - functional annotation
+  - integration
+  - metagenomics
+input:
+  - meta:
+      type: map
+      description: MAG metadata containing id and mag_id
+  - proteins:
+      type: file
+      description: Predicted protein FASTA
+  - gff:
+      type: file
+      description: GeneMarkS-2 GFF predictions
+  - eggnog_annotations:
+      type: file
+      description: eggNOG-mapper annotation table
+  - interproscan_tsv:
+      type: file
+      description: InterProScan TSV annotations
+  - annotation_script:
+      type: file
+      description: Functional annotation integration helper
+output:
+  - annotations:
+      type: file
+      description: Consolidated per-protein functional annotation table
+  - summary:
+      type: file
+      description: Per-MAG annotation coverage summary
+  - log:
+      type: file
+      description: Integration log
+  - versions:
+      type: value
+      description: Process, tool, and helper version tuple

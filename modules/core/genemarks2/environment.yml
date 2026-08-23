@@ -1,0 +1,5 @@
+name: genemarks2-1.15-runtime
+channels:
+  - conda-forge
+dependencies:
+  - conda-forge::perl=5.32.1

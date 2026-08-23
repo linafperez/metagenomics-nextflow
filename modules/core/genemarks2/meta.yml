@@ -1,0 +1,35 @@
+name: genemarks2
+description: Predict protein-coding genes in a prokaryotic MAG with GeneMarkS-2
+keywords:
+  - gene prediction
+  - MAG
+  - metagenomics
+tools:
+  - genemarks2:
+      description: Self-training gene prediction for prokaryotic genomes
+      homepage: https://genemark.bme.gatech.edu/GeneMark/
+      documentation: https://genemark.bme.gatech.edu/GeneMark/genemarks2.cgi
+      licence: [GeneMark academic license]
+input:
+  - meta:
+      type: map
+      description: MAG metadata containing id and mag_id
+  - mag:
+      type: file
+      description: MAG nucleotide FASTA
+  - genemark_home:
+      type: directory
+      description: External licensed GeneMarkS-2 1.15 installation
+  - genemark_key:
+      type: file
+      description: External GeneMarkS-2 license key
+output:
+  - predictions:
+      type: tuple
+      description: Protein FASTA, coding-sequence FASTA, and GFF predictions
+  - log:
+      type: file
+      description: GeneMarkS-2 runtime log
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple

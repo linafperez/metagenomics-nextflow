@@ -1,0 +1,38 @@
+name: eggnogmapper
+description: Annotate predicted proteins by eggNOG orthology assignment
+keywords:
+  - functional annotation
+  - orthology
+  - eggNOG
+tools:
+  - eggnog-mapper:
+      description: Fast functional annotation through orthology assignment
+      homepage: https://github.com/eggnogdb/eggnog-mapper
+      documentation: https://github.com/eggnogdb/eggnog-mapper/blob/2.1.13/USAGE.md
+      licence: [GPL-2.0]
+input:
+  - meta:
+      type: map
+      description: MAG metadata containing id and mag_id
+  - proteins:
+      type: file
+      description: Predicted protein FASTA
+  - eggnog_db:
+      type: directory
+      description: eggNOG 5.0.2 mapper database directory
+output:
+  - annotations:
+      type: file
+      description: Full eggNOG-mapper functional annotation table
+  - seed_orthologs:
+      type: file
+      description: Best seed ortholog hits
+  - orthologs:
+      type: file
+      description: Ortholog assignments per query protein
+  - log:
+      type: file
+      description: eggNOG-mapper runtime log
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple

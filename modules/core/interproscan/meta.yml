@@ -1,0 +1,38 @@
+name: interproscan
+description: Annotate predicted proteins with InterPro member databases
+keywords:
+  - functional annotation
+  - protein domains
+  - InterPro
+tools:
+  - interproscan:
+      description: Protein sequence classification using InterPro member databases
+      homepage: https://www.ebi.ac.uk/interpro/about/interproscan/
+      documentation: https://interproscan-docs.readthedocs.io/en/v5/
+      licence: [Apache-2.0, GPL-3.0]
+input:
+  - meta:
+      type: map
+      description: MAG metadata containing id and mag_id
+  - proteins:
+      type: file
+      description: Predicted protein FASTA
+  - interproscan_data:
+      type: directory
+      description: External InterProScan 5.59-91.0 data directory
+output:
+  - tsv:
+      type: file
+      description: Tabular protein signature and InterPro annotations
+  - gff3:
+      type: file
+      description: InterProScan GFF3 protein annotations
+  - json:
+      type: file
+      description: InterProScan JSON protein annotations
+  - log:
+      type: file
+      description: InterProScan runtime log
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple
