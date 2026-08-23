@@ -1,0 +1,6 @@
+name: fastp-1.0.1
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::fastp=1.0.1

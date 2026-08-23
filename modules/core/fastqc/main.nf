@@ -3,6 +3,7 @@ process FASTQC {
     label 'process_low'
 
     container 'quay.io/biocontainers/fastqc:0.12.1--hdfd78af_0'
+    conda "${moduleDir}/environment.yml"
 
     input:
     tuple val(meta), path(reads, arity: '2')
@@ -10,9 +11,10 @@ process FASTQC {
     output:
     tuple val(meta), path('*_fastqc.html', arity: '2'), emit: html
     tuple val(meta), path('*_fastqc.zip', arity: '2'), emit: zip
-    tuple val("${task.process}"), val('fastqc'),
-        eval('fastqc --version | sed -n "s/^FastQC v//p"'),
-        emit: versions
+    tuple val("${task.process}"), val('fastqc'), val('0.12.1'), emit: versions
+
+    when:
+    task.ext.when == null || task.ext.when
 
     script:
     def args   = task.ext.args ?: ''
@@ -48,5 +50,14 @@ process FASTQC {
         --threads ${task.cpus} \\
         ${args} \\
         ${renamed_reads.join(' ')}
+    """
+
+    stub:
+    def prefix = task.ext.prefix ?: meta.id
+    """
+    printf '<html><body>FastQC stub</body></html>\n' > "${prefix}_1_fastqc.html"
+    printf 'FastQC stub archive\n' > "${prefix}_1_fastqc.zip"
+    printf '<html><body>FastQC stub</body></html>\n' > "${prefix}_2_fastqc.html"
+    printf 'FastQC stub archive\n' > "${prefix}_2_fastqc.zip"
     """
 }

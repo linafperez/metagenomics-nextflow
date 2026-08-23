@@ -2,6 +2,19 @@
 .nextflow*
 work/
 results/
+tests/results/
+tests/work/
+tests/logs/
+tests/test_raw/
+tests/generated_reference/
+tests/generated_data/
+tests/benchmark_runs/
+tests/*.trace
+.tools/
+.conda/
+.apptainer/
+__pycache__/
+*.py[cod]
 .nextflow.log*
 
 # Sequencing data
@@ -22,10 +35,12 @@ raw/
 databases/
 database/
 db/
+containers/*.sif
 
 # Local environment and secrets
 .env
 *.key
+recommendations/
 
 # Machine-specific samplesheets
 samplesheet.local.csv

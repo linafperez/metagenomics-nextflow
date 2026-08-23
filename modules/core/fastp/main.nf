@@ -3,6 +3,7 @@ process FASTP {
     label 'process_medium'
 
     container 'community.wave.seqera.io/library/fastp:1.0.1--c8b87fe62dcc103c'
+    conda "${moduleDir}/environment.yml"
 
     input:
     tuple val(meta), path(reads, arity: '2')
@@ -11,9 +12,10 @@ process FASTP {
     tuple val(meta), path('*_trimmed_*.fastq', arity: '2'), emit: reads
     tuple val(meta), path('*.fastp.json'), emit: json
     tuple val(meta), path('*.fastp.html'), emit: html
-    tuple val("${task.process}"), val('fastp'),
-        eval('fastp --version 2>&1 | sed "s/^fastp //"'),
-        emit: versions
+    tuple val("${task.process}"), val('fastp'), val('1.0.1'), emit: versions
+
+    when:
+    task.ext.when == null || task.ext.when
 
     script:
     def args   = task.ext.args ?: ''
@@ -28,5 +30,14 @@ process FASTP {
         --json "${prefix}.fastp.json" \\
         --html "${prefix}.fastp.html" \\
         ${args}
+    """
+
+    stub:
+    def prefix = task.ext.prefix ?: meta.id
+    """
+    printf '@stub/1\nACGTACGTACGT\n+\nFFFFFFFFFFFF\n' > "${prefix}_trimmed_1.fastq"
+    printf '@stub/2\nTGCATGCATGCA\n+\nFFFFFFFFFFFF\n' > "${prefix}_trimmed_2.fastq"
+    printf '{"summary":{"before_filtering":{"total_reads":2},"after_filtering":{"total_reads":2}}}\n' > "${prefix}.fastp.json"
+    printf '<html><body>fastp stub</body></html>\n' > "${prefix}.fastp.html"
     """
 }

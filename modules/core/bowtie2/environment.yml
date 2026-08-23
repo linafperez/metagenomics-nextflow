@@ -1,0 +1,6 @@
+name: bowtie2-2.5.4
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::bowtie2=2.5.4
