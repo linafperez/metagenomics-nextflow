@@ -65,7 +65,7 @@ def write_reads(
             second.write(f"@{name}/2\n{read_2}\n+\n{quality}\n")
 
 
-def create_stub_resources(project_dir: Path) -> None:
+def create_stub_resources(project_dir: Path) -> tuple[str, list[str]]:
     data_dir = project_dir / "tests" / "generated_data"
     reference_dir = project_dir / "tests" / "generated_reference"
 
@@ -73,6 +73,13 @@ def create_stub_resources(project_dir: Path) -> None:
     microbes = [random_sequence(9_000, 101), random_sequence(8_000, 202)]
     write_fasta(reference_dir / "GRCh38.p14.fa", "synthetic_GRCh38_p14", host)
     write_fasta(data_dir / "microbial_fixture.fa", "synthetic_microbe", microbes[0])
+    for assembler, sequence in (("megahit", microbes[0]), ("spades", microbes[1])):
+        for index in (1, 2):
+            write_fasta(
+                data_dir / "bins" / assembler / f"bin_{index:03d}.fa",
+                f"{assembler}_bin_{index:03d}",
+                sequence[:2400],
+            )
 
     index_prefix = reference_dir / "GRCh38_p14"
     for suffix in (".1.bt2", ".2.bt2", ".3.bt2", ".4.bt2", ".rev.1.bt2", ".rev.2.bt2"):
@@ -94,6 +101,9 @@ def create_stub_resources(project_dir: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
 
     (data_dir / "databases" / "gunc" / "gunc_db.dmnd").write_text(
+        "stub database\n", encoding="utf-8"
+    )
+    (data_dir / "databases" / "checkm2" / "uniref100.KO.1.dmnd").write_text(
         "stub database\n", encoding="utf-8"
     )
     (data_dir / "licenses" / "gm_key").write_text("STUB_KEY\n", encoding="utf-8")
