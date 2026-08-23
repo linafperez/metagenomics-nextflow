@@ -50,6 +50,7 @@ process INTERPROSCAN {
         > "\${INTERPROSCAN_USER_DIR}/.interproscan-5/interproscan.properties"
 
     export _JAVA_OPTIONS="-Duser.home=\${INTERPROSCAN_USER_DIR}"
+    export INTERPROSCAN_CONF="\${INTERPROSCAN_USER_DIR}/.interproscan-5/interproscan.properties"
 
     echo "Running InterProScan functional annotation"
 

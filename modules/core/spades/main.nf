@@ -27,17 +27,17 @@ process SPADES {
         error "SPAdes requires an even number of paired-end read files"
     }
 
-    def read_pairs = reads.collate(2)
-    def libraries = read_pairs.collect { pair ->
-        """  {
+    def read_pairs  = reads.collate(2)
+    def left_reads  = read_pairs.collect { pair -> '"' + pair[0] + '"' }.join(', ')
+    def right_reads = read_pairs.collect { pair -> '"' + pair[1] + '"' }.join(', ')
+    def dataset_yaml = """[
+  {
     orientation: \"fr\",
     type: \"paired-end\",
-    left reads: [\"${pair[0]}\"],
-    right reads: [\"${pair[1]}\"]
-  }"""
-    }.join(',\n')
-
-    def dataset_yaml  = "[\n${libraries}\n]"
+    left reads: [${left_reads}],
+    right reads: [${right_reads}]
+  }
+]"""
     def dataset_shell = dataset_yaml.replace("'", "'\"'\"'")
     def memory_gb     = task.memory ? Math.max(1, task.memory.toGiga() as int) : 1
 

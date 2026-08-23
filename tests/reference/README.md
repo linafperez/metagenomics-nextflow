@@ -1,7 +1,15 @@
 # Test Bowtie2 index
 
-Place the six files of an existing Bowtie2 index in this directory with the
-prefix `GRCh38_p14`.
+No reference data or indexes belong in this tracked directory. The deterministic
+fixture generator writes `tests/generated_reference/GRCh38.p14.fa` and
+structured stub index fixtures below the ignored `tests/generated_reference/`
+directory:
 
-The reference genome and index are intentionally not included. The pipeline
-does not download or build them during Phase 1.
+```bash
+python3 tests/scripts/generate_synthetic_data.py
+```
+
+For `--test-local`, `tests/workflows/synthetic_real.nf` builds a genuine tiny
+Bowtie2 index from that FASTA before host-removal testing. Production stubs use
+the generated structural index fixtures. Neither mode downloads GRCh38 or a
+production Bowtie2 index.

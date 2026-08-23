@@ -29,10 +29,12 @@ process DREP {
     def magFiles = mags instanceof List ? mags : [mags]
     def links = magFiles.collect { mag ->
         def magId = mag.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
-        "ln -s \"${mag}\" \"input_mags/${magId}.fa\""
+        "ln -s \"\$(readlink -f '${mag}')\" \"input_mags/${magId}.fa\""
     }.join('\n')
 
     """
+    set -euo pipefail
+
     mkdir -p input_mags
     ${links}
 
@@ -48,6 +50,7 @@ process DREP {
         -cm larger \\
         --S_algorithm fastANI \\
         --multiround_primary_clustering \\
+        --run_tertiary_clustering \\
         ${args} \\
         > "${prefix}.drep.log" 2>&1
 

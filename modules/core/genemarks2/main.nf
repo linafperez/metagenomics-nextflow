@@ -56,6 +56,13 @@ process GENEMARKS2 {
     export LC_ALL=C
     export LANG=C
 
+    gms2_version=\$(perl "\${gms2_script}" --version 2>&1 || true)
+    if ! grep -Eq '(^|[^0-9])1\.15([^0-9]|\$)' <<< "\${gms2_version}"; then
+        detected_version=\$(tr '\n' ' ' <<< "\${gms2_version}" | head -c 200)
+        echo "GeneMarkS-2 1.15 is required; detected: \${detected_version:-unknown}" >&2
+        exit 1
+    fi
+
     mag_path=\$(readlink -f "${mag}")
     output_root="\$PWD"
 

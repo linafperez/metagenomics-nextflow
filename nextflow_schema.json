@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/linafperez/metagenomics-nextflow/main/nextflow_schema.json",
+  "title": "Shotgun metagenomics pipeline parameters",
+  "description": "Parameter contract for the production Nextflow workflow.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "input": {
+      "type": ["string", "null"],
+      "description": "CSV samplesheet with sample, fastq_1, and fastq_2 columns."
+    },
+    "outdir": {
+      "type": "string",
+      "minLength": 1,
+      "default": "results",
+      "description": "Result publication directory."
+    },
+    "pipeline_root": {
+      "type": ["string", "null"],
+      "description": "Internal project-root override used by isolated test entrypoints."
+    },
+    "publish_dir_mode": {
+      "type": "string",
+      "enum": ["copy", "copyNoFollow", "link", "move", "rellink", "symlink"],
+      "default": "copy"
+    },
+    "conda_cache_dir": {
+      "type": ["string", "null"],
+      "description": "Optional Conda environment cache directory."
+    },
+    "host_bowtie2_index": {
+      "type": ["string", "null"],
+      "description": "GRCh38.p14 Bowtie2 index prefix."
+    },
+    "checkm2_db": {
+      "type": ["string", "null"],
+      "description": "CheckM2 database directory or DIAMOND database file."
+    },
+    "gunc_db": {
+      "type": ["string", "null"],
+      "description": "GUNC ProGenomes database file."
+    },
+    "gtdbtk_db": {
+      "type": ["string", "null"],
+      "description": "GTDB-Tk release 226 database directory."
+    },
+    "phylophlan_db": {
+      "type": ["string", "null"],
+      "description": "PhyloPhlAn marker database directory."
+    },
+    "phylophlan_config": {
+      "type": ["string", "null"],
+      "description": "PhyloPhlAn configuration using IQ-TREE 3.0.1."
+    },
+    "phylophlan_container": {
+      "type": ["string", "null"],
+      "default": "metagenomics/phylophlan-iqtree:3.1.1-3.0.1",
+      "description": "Container image containing PhyloPhlAn 3.1.1 and IQ-TREE 3.0.1."
+    },
+    "genemark_key": {
+      "type": ["string", "null"],
+      "description": "External GeneMark license key path."
+    },
+    "genemark_home": {
+      "type": ["string", "null"],
+      "description": "External GeneMarkS-2 1.15 installation directory."
+    },
+    "eggnog_db": {
+      "type": ["string", "null"],
+      "description": "eggNOG-mapper 2.1.13 compatible database directory."
+    },
+    "interproscan_data": {
+      "type": ["string", "null"],
+      "description": "InterProScan 5.59-91.0 data directory."
+    },
+    "min_contig_length": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1500
+    },
+    "hq_completeness": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 90.0
+    },
+    "hq_contamination": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 5.0
+    },
+    "derep_ani": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "default": 0.99
+    },
+    "species_ani": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "default": 0.95
+    },
+    "derep_coverage": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "default": 0.3
+    },
+    "save_clean_reads": {"type": "boolean", "default": false},
+    "save_host_removed_reads": {"type": "boolean", "default": true},
+    "save_bam": {"type": "boolean", "default": false},
+    "save_intermediates": {"type": "boolean", "default": false},
+    "slurm_account": {"type": ["string", "null"]},
+    "slurm_queue": {"type": ["string", "null"]},
+    "slurm_qos": {"type": ["string", "null"]},
+    "slurm_cluster_options": {"type": ["string", "null"]},
+    "slurm_queue_size": {"type": "integer", "minimum": 1, "default": 100},
+    "local_max_jobs": {"type": "integer", "minimum": 1, "default": 2},
+    "max_cpus": {"type": "integer", "minimum": 1, "default": 32},
+    "max_memory": {
+      "type": "string",
+      "pattern": "^[0-9]+(?:\\.[0-9]+)?\\s*(?:KB|MB|GB|TB)$",
+      "default": "1800 GB"
+    },
+    "max_time": {
+      "type": "string",
+      "minLength": 1,
+      "default": "14d"
+    },
+    "stub_run": {"type": "boolean", "default": false}
+  }
+}

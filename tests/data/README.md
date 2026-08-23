@@ -1,8 +1,13 @@
 # Test sequencing data
 
-Place a small, real paired-end dataset in this directory using these names:
+No biological data belong in this tracked directory. The deterministic fixture
+generator writes paired FASTQ files and `samplesheet.csv` to the ignored
+`tests/generated_data/` directory:
 
-- `test_sample_R1.fastq.gz`
-- `test_sample_R2.fastq.gz`
+```bash
+python3 tests/scripts/generate_synthetic_data.py
+```
 
-The files are intentionally not included and must be supplied by the user.
+The launcher invokes the generator automatically for production stubs and the
+scoped `--test-local` real-tool workflow. The fixtures are synthetic and are not
+a substitute for production metagenomic reads.

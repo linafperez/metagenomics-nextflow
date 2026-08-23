@@ -1,0 +1,48 @@
+name: drep
+description: Dereplicate MAGs and record representative genome clusters with dRep
+keywords: [MAG, dereplication, ANI, clustering]
+tools:
+  - drep:
+      description: Compare and dereplicate genome sets
+      homepage: https://github.com/MrOlm/drep
+      documentation: https://drep.readthedocs.io/
+      licence: [MIT]
+input:
+  - meta:
+      type: map
+      description: Catalog and refinement metadata
+  - mags:
+      type: file
+      description: MAG FASTA files
+  - genome_info:
+      type: file
+      description: dRep-compatible genome quality table
+  - ani:
+      type: value
+      description: Secondary-clustering ANI threshold
+  - coverage:
+      type: value
+      description: Minimum comparable alignment coverage
+  - stage:
+      type: value
+      description: Stable identifier for the dereplication operation
+output:
+  - representatives:
+      type: file
+      description: Representative MAG FASTA files
+      pattern: '*.representatives/*.fa'
+  - clusters:
+      type: file
+      description: Genome-to-cluster assignments
+      pattern: '*.clusters.csv'
+  - results:
+      type: directory
+      description: Native dRep work directory
+      pattern: '*.drep'
+  - log:
+      type: file
+      description: dRep execution log
+      pattern: '*.drep.log'
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple

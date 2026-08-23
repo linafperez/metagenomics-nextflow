@@ -1,0 +1,32 @@
+name: fastp
+description: Trim and quality-filter paired-end metagenomic reads with fastp
+keywords: [FASTQ, trimming, quality control]
+tools:
+  - fastp:
+      description: FASTQ preprocessor with quality control reporting
+      homepage: https://github.com/OpenGene/fastp
+      documentation: https://github.com/OpenGene/fastp
+      licence: [MIT]
+input:
+  - meta:
+      type: map
+      description: Sample metadata
+  - reads:
+      type: file
+      description: Paired-end FASTQ files
+output:
+  - reads:
+      type: file
+      description: Trimmed paired-end FASTQ files
+      pattern: '*_trimmed_*.fastq'
+  - json:
+      type: file
+      description: Machine-readable fastp report
+      pattern: '*.fastp.json'
+  - html:
+      type: file
+      description: Human-readable fastp report
+      pattern: '*.fastp.html'
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple

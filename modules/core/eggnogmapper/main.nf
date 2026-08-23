@@ -35,6 +35,10 @@ process EGGNOGMAPPER {
         echo "eggNOG 5.0.2 DIAMOND database was not found" >&2
         exit 1
     fi
+    if [[ ! -s "\${database_dir}/eggnog.taxa.db" ]]; then
+        echo "eggNOG 5.0.2 taxonomy database was not found" >&2
+        exit 1
+    fi
 
     echo "Running eggNOG-mapper functional annotation"
 

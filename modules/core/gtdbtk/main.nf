@@ -56,11 +56,11 @@ process GTDBTK_CLASSIFY {
     def summary_header = [
         'user_genome',
         'classification',
-        'fastani_reference',
-        'fastani_reference_radius',
-        'fastani_taxonomy',
-        'fastani_ani',
-        'fastani_af',
+        'closest_genome_reference',
+        'closest_genome_reference_radius',
+        'closest_genome_taxonomy',
+        'closest_genome_ani',
+        'closest_genome_af',
         'closest_placement_reference',
         'closest_placement_radius',
         'closest_placement_taxonomy',
@@ -121,8 +121,8 @@ process GTDBTK_CLASSIFY {
         [id: raw_id.replaceAll(/[^A-Za-z0-9_.-]/, '_')]
     }
     def summary_header = [
-        'user_genome', 'classification', 'fastani_reference', 'fastani_reference_radius',
-        'fastani_taxonomy', 'fastani_ani', 'fastani_af', 'closest_placement_reference',
+        'user_genome', 'classification', 'closest_genome_reference', 'closest_genome_reference_radius',
+        'closest_genome_taxonomy', 'closest_genome_ani', 'closest_genome_af', 'closest_placement_reference',
         'closest_placement_radius', 'closest_placement_taxonomy', 'closest_placement_ani',
         'closest_placement_af', 'pplacer_taxonomy', 'classification_method', 'note',
         'other_related_references(genome_id,species_name,radius,ANI,AF)', 'msa_percent',
@@ -132,8 +132,8 @@ process GTDBTK_CLASSIFY {
         [
             entry.id,
             'd__Bacteria;p__Stubphylum;c__Stubclass;o__Stuborder;f__Stubfamily;g__Stubgenus;s__',
-            'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A', 'N/A',
-            'N/A', 'N/A',
+            'N/A', 'N/A', 'N/A', 'N/A', 'N/A',
+            'N/A', 'N/A', 'N/A', 'N/A', 'N/A',
             'd__Bacteria;p__Stubphylum;c__Stubclass;o__Stuborder;f__Stubfamily;g__Stubgenus;s__',
             'taxonomic classification fully defined by topology',
             'N/A', 'N/A', '100.0', '11', '0.5', 'Stub classification'

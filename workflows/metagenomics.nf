@@ -35,6 +35,48 @@ workflow METAGENOMICS {
         error "Missing required parameter(s): ${missing_parameters.collect { name -> "--${name}" }.join(', ')}"
     }
 
+    def integer_pattern = ~/^[0-9]+$/
+    if (!(params.min_contig_length.toString() ==~ integer_pattern) || params.min_contig_length.toInteger() < 1) {
+        error '--min_contig_length must be a positive integer'
+    }
+
+    def number_pattern = ~/^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$/
+    def numeric_parameters = [
+        hq_completeness  : params.hq_completeness,
+        hq_contamination : params.hq_contamination,
+        derep_ani        : params.derep_ani,
+        species_ani      : params.species_ani,
+        derep_coverage   : params.derep_coverage
+    ]
+    def invalid_numeric_parameters = numeric_parameters.findAll { _name, value ->
+        value == null || !(value.toString() ==~ number_pattern)
+    }.keySet().sort()
+    if (invalid_numeric_parameters) {
+        error "Numeric parameter(s) have invalid values: ${invalid_numeric_parameters.collect { name -> "--${name}" }.join(', ')}"
+    }
+
+    def hq_completeness = params.hq_completeness.toDouble()
+    def hq_contamination = params.hq_contamination.toDouble()
+    def derep_ani = params.derep_ani.toDouble()
+    def species_ani = params.species_ani.toDouble()
+    def derep_coverage = params.derep_coverage.toDouble()
+
+    if (hq_completeness < 0 || hq_completeness > 100) {
+        error '--hq_completeness must be between 0 and 100'
+    }
+    if (hq_contamination < 0 || hq_contamination > 100) {
+        error '--hq_contamination must be between 0 and 100'
+    }
+    if (derep_ani <= 0 || derep_ani > 1 || species_ani <= 0 || species_ani > 1) {
+        error '--derep_ani and --species_ani must be greater than 0 and at most 1'
+    }
+    if (derep_ani <= species_ani) {
+        error '--derep_ani must be greater than --species_ani'
+    }
+    if (derep_coverage <= 0 || derep_coverage > 1) {
+        error '--derep_coverage must be greater than 0 and at most 1'
+    }
+
     ch_samplesheet = channel.fromPath(params.input, checkIfExists: true)
     ch_samplesheet_validator = channel.value(
         file("${projectDir}/bin/check_samplesheet.py", checkIfExists: true)

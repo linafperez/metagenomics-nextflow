@@ -3,7 +3,7 @@ process PHYLOPHLAN {
     label 'process_high'
 
     conda "${moduleDir}/environment.yml"
-    container "${task.ext.container ?: 'quay.io/biocontainers/phylophlan:3.1.1--pyhdfd78af_0'}"
+    container "${task.ext.container ?: 'metagenomics/phylophlan-iqtree:3.1.1-3.0.1'}"
 
     input:
     tuple val(meta), path(mags, arity: '1..*')
@@ -80,6 +80,7 @@ process PHYLOPHLAN {
         -f "${phylophlan_config}" \
         --databases_folder databases \
         --genome_extension .fna \
+        --force_nucleotides \
         --diversity high \
         --accurate \
         --nproc ${task.cpus} \

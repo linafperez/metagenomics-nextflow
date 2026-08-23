@@ -1,7 +1,7 @@
 #!/usr/bin/env nextflow
 
 include { MEGAHIT } from '../../../../modules/core/megahit/main'
-include { METAQUAST as METAQUAST_MEGHIT } from '../../../../modules/core/metaquast/main'
+include { METAQUAST as METAQUAST_MEGAHIT } from '../../../../modules/core/metaquast/main'
 
 workflow MEGAHIT_ASSEMBLY {
     take:
@@ -38,24 +38,24 @@ workflow MEGAHIT_ASSEMBLY {
         }
 
     MEGAHIT(ch_coassembly_input)
-    METAQUAST_MEGHIT(MEGAHIT.out.contigs)
+    METAQUAST_MEGAHIT(MEGAHIT.out.contigs)
 
-    ch_reports = METAQUAST_MEGHIT.out.report_tsv
-        .mix(METAQUAST_MEGHIT.out.report_html)
+    ch_reports = METAQUAST_MEGAHIT.out.report_tsv
+        .mix(METAQUAST_MEGAHIT.out.report_html)
 
     ch_logs = MEGAHIT.out.log
-        .mix(METAQUAST_MEGHIT.out.log)
+        .mix(METAQUAST_MEGAHIT.out.log)
 
     ch_versions = MEGAHIT.out.versions
-        .mix(METAQUAST_MEGHIT.out.versions)
+        .mix(METAQUAST_MEGAHIT.out.versions)
 
     emit:
     assembly          = MEGAHIT.out.contigs
     assembly_log      = MEGAHIT.out.log
-    metaquast_results = METAQUAST_MEGHIT.out.results
-    metaquast_report  = METAQUAST_MEGHIT.out.report_tsv
-    metaquast_html    = METAQUAST_MEGHIT.out.report_html
-    metaquast_log     = METAQUAST_MEGHIT.out.log
+    metaquast_results = METAQUAST_MEGAHIT.out.results
+    metaquast_report  = METAQUAST_MEGAHIT.out.report_tsv
+    metaquast_html    = METAQUAST_MEGAHIT.out.report_html
+    metaquast_log     = METAQUAST_MEGAHIT.out.log
     reports           = ch_reports
     logs              = ch_logs
     versions          = ch_versions

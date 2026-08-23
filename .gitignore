@@ -40,6 +40,9 @@ containers/*.sif
 # Local environment and secrets
 .env
 *.key
+gm_key
+.gm_key
+.gmhmmp2_key
 recommendations/
 
 # Machine-specific samplesheets

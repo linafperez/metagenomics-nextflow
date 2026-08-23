@@ -22,6 +22,8 @@ process CHECK_SAMPLESHEET {
 
     stub:
     """
-    cp "${samplesheet}" validated_samplesheet.csv
+    python3 "${validation_script}" \\
+        --input "${samplesheet}" \\
+        --output validated_samplesheet.csv
     """
 }

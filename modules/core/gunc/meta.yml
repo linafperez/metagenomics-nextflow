@@ -1,0 +1,35 @@
+name: gunc
+description: Assess MAG taxonomic consistency and chimerism with GUNC
+keywords: [MAG, quality, chimerism, taxonomy]
+tools:
+  - gunc:
+      description: Detection of chimerism and contamination in microbial genomes
+      homepage: https://github.com/grp-bork/gunc
+      documentation: https://grp-bork.embl-community.io/gunc/
+      licence: [GPL-3.0]
+input:
+  - meta:
+      type: map
+      description: Catalog and refinement metadata
+  - bins:
+      type: file
+      description: MAG FASTA files
+  - database:
+      type: file
+      description: GUNC ProGenomes database file
+output:
+  - results:
+      type: directory
+      description: Native GUNC output directory
+      pattern: '*.gunc'
+  - summary:
+      type: file
+      description: Consolidated GUNC summary table
+      pattern: '*.gunc.summary.tsv'
+  - log:
+      type: file
+      description: GUNC execution log
+      pattern: '*.gunc.log'
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple

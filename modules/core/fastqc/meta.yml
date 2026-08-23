@@ -1,0 +1,28 @@
+name: fastqc
+description: Assess paired-end FASTQ quality with FastQC
+keywords: [FASTQ, quality control, reporting]
+tools:
+  - fastqc:
+      description: Quality control reports for sequencing reads
+      homepage: https://www.bioinformatics.babraham.ac.uk/projects/fastqc/
+      documentation: https://www.bioinformatics.babraham.ac.uk/projects/fastqc/Help/
+      licence: [GPL-3.0-or-later]
+input:
+  - meta:
+      type: map
+      description: Sample metadata
+  - reads:
+      type: file
+      description: Paired-end FASTQ files
+output:
+  - html:
+      type: file
+      description: FastQC HTML reports
+      pattern: '*_fastqc.html'
+  - zip:
+      type: file
+      description: FastQC structured report archives
+      pattern: '*_fastqc.zip'
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple

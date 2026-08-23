@@ -28,7 +28,7 @@ process GUNC {
     }
     def links = binFiles.collect { bin ->
         def binId = bin.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
-        "ln -s \"${bin}\" \"input_bins/${binId}.fa\""
+        "ln -s \"\$(readlink -f '${bin}')\" \"input_bins/${binId}.fa\""
     }.join('\n')
 
     """

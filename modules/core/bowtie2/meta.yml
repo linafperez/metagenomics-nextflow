@@ -1,0 +1,34 @@
+name: bowtie2
+description: Remove host reads from paired-end metagenomic data with Bowtie2
+keywords: [alignment, host removal, metagenomics]
+tools:
+  - bowtie2:
+      description: Fast and sensitive gapped read aligner
+      homepage: https://bowtie-bio.sourceforge.net/bowtie2/
+      documentation: https://bowtie-bio.sourceforge.net/bowtie2/manual.shtml
+      licence: [GPL-3.0-or-later]
+input:
+  - meta:
+      type: map
+      description: Sample metadata
+  - reads:
+      type: file
+      description: Paired-end FASTQ files
+  - index:
+      type: file
+      description: Six Bowtie2 index files
+  - index_prefix:
+      type: value
+      description: Bowtie2 index prefix basename
+output:
+  - reads:
+      type: file
+      description: Paired non-host FASTQ files
+      pattern: '*_nonhost_*.fastq.gz'
+  - log:
+      type: file
+      description: Bowtie2 alignment summary
+      pattern: '*.bowtie2.log'
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple

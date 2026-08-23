@@ -1,0 +1,35 @@
+name: checkm2
+description: Estimate MAG completeness and contamination with CheckM2
+keywords: [MAG, quality, completeness, contamination]
+tools:
+  - checkm2:
+      description: Machine-learning assessment of microbial genome quality
+      homepage: https://github.com/chklovski/CheckM2
+      documentation: https://github.com/chklovski/CheckM2
+      licence: [GPL-3.0]
+input:
+  - meta:
+      type: map
+      description: Catalog and refinement metadata
+  - bins:
+      type: file
+      description: MAG FASTA files
+  - database:
+      type: file
+      description: CheckM2 database directory or DIAMOND file
+output:
+  - results:
+      type: directory
+      description: Native CheckM2 output directory
+      pattern: '*.checkm2'
+  - quality:
+      type: file
+      description: Completeness and contamination table
+      pattern: '*.checkm2.quality_report.tsv'
+  - log:
+      type: file
+      description: CheckM2 execution log
+      pattern: '*.checkm2.log'
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple
