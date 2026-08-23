@@ -1,0 +1,70 @@
+process DASTOOL {
+    tag "${meta.id}"
+    label 'process_high_memory'
+
+    conda "${moduleDir}/environment.yml"
+    container 'quay.io/biocontainers/das_tool:1.1.7--r44hdfd78af_1'
+
+    input:
+    tuple val(meta), path(contigs), path(comebin_map), path(metabat2_map), path(semibin2_map), path(vamb_map)
+
+    output:
+    tuple val(meta), path('*_DASTool_bins/*.{fa,fna,fasta}', arity: '1..*'), emit: bins
+    tuple val(meta), path('*_DASTool_summary.tsv'), emit: summary
+    tuple val(meta), path('*_DASTool_contig*bin.tsv'), emit: contigs2bin
+    tuple val(meta), path('*_allBins.eval'), emit: evaluations
+    tuple val(meta), path('*_DASTool.log'), emit: log
+    tuple val(meta), path('*_proteins.faa'), optional: true, emit: proteins
+    tuple val("${task.process}"), val('das_tool'), val('1.1.7'), emit: versions
+
+    when:
+    task.ext.when == null || task.ext.when
+
+    script:
+    def args   = task.ext.args ?: ''
+    def prefix = task.ext.prefix ?: meta.id
+
+    """
+    set -euo pipefail
+
+    for bin_map in "${comebin_map}" "${metabat2_map}" "${semibin2_map}" "${vamb_map}"; do
+        if [ ! -s "\${bin_map}" ]; then
+            echo "DAS Tool input map is empty: \${bin_map}" >&2
+            exit 1
+        fi
+        awk 'NF < 2 { exit 1 }' "\${bin_map}" || {
+            echo "DAS Tool input map is not a two-column table: \${bin_map}" >&2
+            exit 1
+        }
+    done
+
+    DAS_Tool \
+        --bins "${comebin_map},${metabat2_map},${semibin2_map},${vamb_map}" \
+        --labels COMEBin,MetaBAT2,SemiBin2,Vamb \
+        --contigs "${contigs}" \
+        --outputbasename "${prefix}" \
+        --threads ${task.cpus} \
+        --search_engine diamond \
+        --write_bins \
+        --write_bin_evals \
+        ${args} \
+        > "${prefix}_DASTool.log" 2>&1
+    """
+
+    stub:
+    def prefix = task.ext.prefix ?: meta.id
+
+    """
+    set -euo pipefail
+
+    mkdir -p "${prefix}_DASTool_bins"
+    awk 'BEGIN { found=0 } /^>/ { if (found) exit; found=1 } found { print }' "${contigs}" > "${prefix}_DASTool_bins/${prefix}.dastool.1.fa"
+    contig_id=\$(awk '/^>/{sub(/^>/, ""); split(\$0, fields, /[[:space:]]+/); print fields[1]; exit}' "${contigs}")
+    contig_id=\${contig_id:-stub_contig}
+    printf '%s\t%s\n' "\${contig_id}" "${prefix}.dastool.1" > "${prefix}_DASTool_contigs2bin.tsv"
+    printf 'bin\tuniqueSCGs\tredundantSCGs\tSCGcompleteness\tSCGredundancy\tsize\tcontigs\tN50\tbinScore\n%s\t36\t0\t90\t0\t1000\t1\t1000\t0.9\n' "${prefix}.dastool.1" > "${prefix}_DASTool_summary.tsv"
+    printf 'bin\tbinSet\tuniqueSCGs\tredundantSCGs\tSCGcompleteness\tSCGredundancy\tbinScore\n%s\tCOMEBin\t36\t0\t90\t0\t0.9\n' "${prefix}.dastool.1" > "${prefix}_allBins.eval"
+    printf 'DAS Tool 1.1.7\nStub refinement completed\n' > "${prefix}_DASTool.log"
+    printf '>stub_contig_1\nMKK\n' > "${prefix}_proteins.faa"
+    """
+}

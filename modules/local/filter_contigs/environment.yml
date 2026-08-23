@@ -1,0 +1,5 @@
+name: filter-contigs
+channels:
+  - conda-forge
+dependencies:
+  - conda-forge::python=3.12

@@ -1,0 +1,38 @@
+name: metabat2
+description: Reconstruct metagenome-assembled genomes from contigs and sample depth profiles
+keywords:
+  - binning
+  - metagenomics
+  - MAG
+tools:
+  - metabat2:
+      description: Adaptive metagenomic binning software
+      homepage: https://bitbucket.org/berkeleylab/metabat
+      documentation: https://bitbucket.org/berkeleylab/metabat/src/master/
+      licence: [BSD-3-Clause-LBNL]
+input:
+  - meta:
+      type: map
+      description: Assembly branch metadata
+  - contigs:
+      type: file
+      description: Coassembly contigs in FASTA format
+  - metabat_depth:
+      type: file
+      description: CoverM MetaBAT-compatible adjusted depth table
+output:
+  - bins:
+      type: directory
+      description: MetaBAT2 FASTA bins
+      pattern: '*.bins'
+  - contigs2bin:
+      type: file
+      description: Headerless contig-to-bin mapping table for DAS Tool
+      pattern: '*.contigs2bin.tsv'
+  - log:
+      type: file
+      description: MetaBAT2 runtime log
+      pattern: '*.metabat2.log'
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple

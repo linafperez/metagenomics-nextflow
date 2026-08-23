@@ -1,0 +1,7 @@
+name: metabat2-2.18
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - metabat2=2.18

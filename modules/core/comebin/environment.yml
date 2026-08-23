@@ -1,0 +1,7 @@
+name: comebin-1.0.4
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - comebin=1.0.4

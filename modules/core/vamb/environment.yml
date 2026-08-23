@@ -1,0 +1,7 @@
+name: vamb-5.0.4
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - vamb=5.0.4

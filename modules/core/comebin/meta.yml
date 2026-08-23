@@ -1,0 +1,42 @@
+name: comebin
+description: Bin metagenomic contigs using contrastive multi-view representation learning
+keywords:
+  - binning
+  - metagenomics
+  - MAG
+tools:
+  - comebin:
+      description: Contrastive multi-view metagenomic binner
+      homepage: https://github.com/ziyewang/COMEBin
+      documentation: https://github.com/ziyewang/COMEBin/tree/1.0.4
+      licence: [BSD-3-Clause]
+input:
+  - meta:
+      type: map
+      description: Assembly branch metadata
+  - contigs:
+      type: file
+      description: Coassembly contigs in FASTA format
+  - bams:
+      type: file
+      description: Reference-sorted sample BAM files
+output:
+  - bins:
+      type: directory
+      description: Standardized COMEBin FASTA bins
+      pattern: '*.bins'
+  - contigs2bin:
+      type: file
+      description: Headerless contig-to-bin mapping table for DAS Tool
+      pattern: '*.contigs2bin.tsv'
+  - native_outputs:
+      type: directory
+      description: Native COMEBin output directory
+      pattern: '*.comebin'
+  - log:
+      type: file
+      description: COMEBin runtime log
+      pattern: '*.comebin.log'
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple

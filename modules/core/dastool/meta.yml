@@ -1,0 +1,59 @@
+name: dastool
+description: Integrate independent metagenomic bin sets into a non-redundant refined catalog
+keywords:
+  - binning
+  - refinement
+  - metagenomics
+tools:
+  - das_tool:
+      description: Dereplication, aggregation, and scoring of metagenomic bins
+      homepage: https://github.com/cmks/DAS_Tool
+      documentation: https://github.com/cmks/DAS_Tool/tree/1.1.7
+      licence: [BSD-3-Clause]
+input:
+  - meta:
+      type: map
+      description: Assembly branch metadata
+  - contigs:
+      type: file
+      description: Coassembly contigs in FASTA format
+  - comebin_map:
+      type: file
+      description: COMEBin contig-to-bin table
+  - metabat2_map:
+      type: file
+      description: MetaBAT2 contig-to-bin table
+  - semibin2_map:
+      type: file
+      description: SemiBin2 contig-to-bin table
+  - vamb_map:
+      type: file
+      description: Vamb contig-to-bin table
+output:
+  - bins:
+      type: directory
+      description: Refined FASTA bins selected by DAS Tool
+      pattern: '*_DASTool_bins'
+  - summary:
+      type: file
+      description: Selected-bin quality and completeness summary
+      pattern: '*_DASTool_summary.tsv'
+  - contigs2bin:
+      type: file
+      description: Refined contig-to-bin assignment table
+      pattern: '*_DASTool_contig*bin.tsv'
+  - evaluations:
+      type: file
+      description: Quality evaluations for all input bins
+      pattern: '*_allBins.eval'
+  - log:
+      type: file
+      description: DAS Tool runtime log
+      pattern: '*_DASTool.log'
+  - proteins:
+      type: file
+      description: Proteins predicted internally by DAS Tool
+      pattern: '*_proteins.faa'
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple

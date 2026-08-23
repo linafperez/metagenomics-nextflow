@@ -1,0 +1,42 @@
+name: vamb
+description: Bin metagenomic contigs from sequence composition and sample-wise abundance
+keywords:
+  - binning
+  - metagenomics
+  - MAG
+tools:
+  - vamb:
+      description: Variational autoencoder for metagenomic binning
+      homepage: https://github.com/RasmussenLab/vamb
+      documentation: https://vamb.readthedocs.io/en/stable/
+      licence: [MIT]
+input:
+  - meta:
+      type: map
+      description: Assembly branch metadata
+  - contigs:
+      type: file
+      description: Coassembly contigs in FASTA format
+  - vamb_abundance:
+      type: file
+      description: CoverM mean abundance matrix with a contigname header
+output:
+  - bins:
+      type: directory
+      description: Standardized Vamb FASTA bins
+      pattern: '*.bins'
+  - contigs2bin:
+      type: file
+      description: Headerless contig-to-bin mapping table for DAS Tool
+      pattern: '*.contigs2bin.tsv'
+  - native_outputs:
+      type: directory
+      description: Native Vamb output directory
+      pattern: '*.vamb'
+  - log:
+      type: file
+      description: Vamb runtime log
+      pattern: '*.vamb.log'
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple

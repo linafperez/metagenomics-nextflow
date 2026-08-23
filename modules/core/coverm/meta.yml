@@ -1,0 +1,49 @@
+name: coverm
+description: Calculate contig coverage, cached alignments, and MAG abundance from paired metagenomic reads
+keywords:
+  - coverage
+  - abundance
+  - metagenomics
+tools:
+  - coverm:
+      description: Read alignment statistics for metagenomics
+      homepage: https://github.com/wwood/CoverM
+      documentation: https://github.com/wwood/CoverM/tree/v0.7.0/docs
+      licence: [GPL-3.0-or-later]
+input:
+  - meta:
+      type: map
+      description: Branch or catalog metadata
+  - contigs_or_mags:
+      type: file
+      description: Assembly contigs for COVERM_CONTIG or MAG FASTA files for COVERM_GENOME
+  - sample_ids:
+      type: list
+      description: Ordered sample IDs corresponding to the ordered read pairs
+  - reads:
+      type: file
+      description: Flattened ordered paired-end FASTQ files
+output:
+  - metabat_depth:
+      type: file
+      description: MetaBAT-compatible adjusted depth table
+      pattern: '*.metabat_depth.tsv'
+  - vamb_abundance:
+      type: file
+      description: Vamb-compatible mean abundance matrix
+      pattern: '*.vamb_abundance.tsv'
+  - bams:
+      type: file
+      description: One reference-sorted BAM per sample
+      pattern: 'bam/*.bam'
+  - abundance:
+      type: file
+      description: Per-sample MAG abundance and coverage metrics
+      pattern: '*.mag_abundance.tsv'
+  - log:
+      type: file
+      description: CoverM runtime log
+      pattern: '*.coverm.log'
+  - versions:
+      type: value
+      description: Process, tool, and software version tuple
