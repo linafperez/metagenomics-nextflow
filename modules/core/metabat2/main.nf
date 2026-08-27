@@ -55,16 +55,4 @@ process METABAT2 {
 
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-
-    """
-    set -euo pipefail
-
-    mkdir -p "${prefix}.metabat2.bins"
-    awk 'BEGIN { found=0 } /^>/ { if (found) exit; found=1 } found { print }' "${contigs}" > "${prefix}.metabat2.bins/${prefix}.metabat2.1.fa"
-    awk -v bin="${prefix}.metabat2.1" 'BEGIN { OFS="\t" } /^>/ { sub(/^>/, ""); split(\$0, fields, /[[:space:]]+/); print fields[1], bin; exit }' "${contigs}" > "${prefix}.metabat2.contigs2bin.tsv"
-    printf 'MetaBAT2 stub completed\n' > "${prefix}.metabat2.log"
-
-    """
 }

@@ -59,24 +59,4 @@ process EGGNOGMAPPER {
     test -s "${prefix}.emapper.orthologs"
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: (meta.mag_id ?: meta.id)
-
-    """
-    set -euo pipefail
-
-    protein_id=\$(awk '/^>/{sub(/^>/, ""); split(\$0, fields, /[[:space:]]+/); print fields[1]; exit}' "${proteins}")
-    protein_id=\${protein_id:-stub_protein_1}
-
-    printf '%b\n' \
-        '## eggNOG-mapper v2.1.13' \
-        '## eggNOG database v5.0.2' \
-        '#query\tseed_ortholog\tevalue\tscore\teggNOG_OGs\tmax_annot_lvl\tCOG_category\tDescription\tPreferred_name\tGOs\tEC\tKEGG_ko\tKEGG_Pathway\tKEGG_Module\tKEGG_Reaction\tKEGG_rclass\tBRITE\tKEGG_TC\tCAZy\tBiGG_Reaction\tPFAMs' \
-        > "${prefix}.emapper.annotations"
-    printf '%s\tstub.ortholog\t1e-50\t200\tCOG0001@2|Bacteria\t2|Bacteria\tJ\tStub ribosomal protein\tstubA\tGO:0003674\t1.1.1.1\tko:K00001\tmap00010\tM00001\tR00001\tRC00001\tko00000\t-\tGH1\t-\tPF00001\n' "\${protein_id}" >> "${prefix}.emapper.annotations"
-
-    printf '#query\tseed_ortholog\tevalue\tscore\n%s\tstub.ortholog\t1e-50\t200\n' "\${protein_id}" > "${prefix}.emapper.seed_orthologs"
-    printf '#query\torthologs\n%s\tstub.ortholog\n' "\${protein_id}" > "${prefix}.emapper.orthologs"
-    printf 'eggNOG-mapper stub annotation completed\n' > "${prefix}.eggnogmapper.log"
-    """
 }

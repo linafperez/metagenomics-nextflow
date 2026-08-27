@@ -2,14 +2,6 @@
 .nextflow*
 work/
 results/
-tests/results/
-tests/work/
-tests/logs/
-tests/test_raw/
-tests/generated_reference/
-tests/generated_data/
-tests/benchmark_runs/
-tests/*.trace
 .tools/
 .conda/
 .apptainer/

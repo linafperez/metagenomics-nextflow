@@ -52,20 +52,4 @@ process FASTQC {
         ${renamed_reads.join(' ')}
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-    """
-    set -euo pipefail
-
-    for mate in 1 2; do
-        report="${prefix}_\${mate}_fastqc"
-        mkdir -p "\${report}"
-        printf '<html><body>FastQC stub</body></html>\n' > "\${report}/fastqc_report.html"
-        printf '##FastQC\t0.12.1\n>>Basic Statistics\tpass\n#Measure\tValue\nFilename\t%s.fastq.gz\nFile type\tConventional base calls\nEncoding\tSanger / Illumina 1.9\nTotal Sequences\t1\nSequences flagged as poor quality\t0\nSequence length\t50\n%%GC\t50\n>>END_MODULE\n' \
-            "${prefix}_\${mate}" > "\${report}/fastqc_data.txt"
-        printf 'PASS\tBasic Statistics\t%s.fastq.gz\n' "${prefix}_\${mate}" > "\${report}/summary.txt"
-        cp "\${report}/fastqc_report.html" "\${report}.html"
-        python3 -m zipfile -c "\${report}.zip" "\${report}"
-    done
-    """
 }

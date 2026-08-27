@@ -26,13 +26,4 @@ process FILTER_CONTIGS {
     """
     command
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-    """
-    python3 "${filter_script}" \\
-        --input "${contigs}" \\
-        --output "${prefix}.filtered.fa" \\
-        --stats "${prefix}.contig_filter.tsv" \\
-        --min-length ${minimum_length}
-    """
 }

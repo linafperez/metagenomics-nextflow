@@ -17,8 +17,8 @@ copy-pasteable execution commands are in the repository [README](../README.md).
   inferred result-directory names.
 - Published outputs are for users. Downstream tasks consume upstream channels
   and never read files back from `results/`.
-- Large databases, licensed files, generated test biology, caches, work files,
-  and results remain outside version control.
+- Large databases, licensed files, caches, work files, and results remain
+  outside version control.
 - nf-core, CLL, and legacy Bash code are references; project modules are
   maintained under `modules/core/` and no nf-core module tree is vendored.
 
@@ -34,14 +34,10 @@ bin/                            transparent Python and Bash helpers
 conf/                           configuration layers and orthogonal profiles
 containers/                     project container build definitions
 assets/                         samplesheet, MultiQC, and PhyloPhlAn templates
-tests/workflows/                isolated validation and benchmark entrypoints
-tests/subworkflows/             benchmark-only orchestration
-tests/scripts/                  fixture, matrix, metric, and unit-test tools
 docs/                           architecture documentation
 ```
 
-`main.nf` only imports and invokes `METAGENOMICS`. This keeps the production
-entrypoint distinct from every test and benchmark entrypoint.
+`main.nf` only imports and invokes `METAGENOMICS` as the production entrypoint.
 
 ## Top-level dataflow
 
@@ -333,33 +329,6 @@ GTDB-Tk. It does not pretend that CoverM, the four binners, DAS Tool, GUNC,
 dRep, PhyloPhlAn, GeneMarkS-2, eggNOG-mapper, or InterProScan are parsed when no
 reliable native parser is configured. Those native outputs remain published.
 
-## Reusable modules and stubs
-
-Every practical process has a `stub:` block. Stubs create minimal structured
-FASTA, FASTQ, TSV, CSV, JSON, GFF, Newick, HTML, or directory outputs as required
-by downstream consumers. They do more than create empty files when a later
-process parses the content.
-
-The `stub` profile sets conservative resources and replaces tool runtime
-definitions with a Python base runtime. `-stub-run` selects each process stub;
-`--stub_run true` also switches production resource selectors to small values.
-This dual setting is intentional.
-
-Stubs validate:
-
-- channel shapes and keyed joins;
-- branch separation and convergence;
-- metadata propagation;
-- filename collision prevention;
-- strict quality-table selection;
-- dRep representative/group contracts;
-- final catalog metadata subsetting;
-- downstream annotation and abundance joins;
-- MultiQC input collection and version aggregation.
-
-They do not validate bioinformatics executables, packaging, databases, a
-GeneMark license, scientific performance, or SLURM scheduling.
-
 ## Configuration composition
 
 `nextflow.config` includes three global layers:
@@ -380,12 +349,9 @@ Profiles add independent dimensions:
 | `conda` | Conda environments with required Mamba solving; containers disabled |
 | `apptainer` | Apptainer with automatic mounts; other runtimes disabled |
 | `singularity` | Singularity compatibility with automatic mounts |
-| `test` | ignored generated fixture paths and conservative local ceilings |
-| `stub` | structured stub resources and generic stub runtime |
 
 The expected production composition is `-profile <environment>,<runtime>`, for
-example `local,docker` or `hpc,apptainer`. Test and stub profiles are additional
-layers, not substitutes for the environment/runtime distinction.
+example `local,docker` or `hpc,apptainer`.
 
 The Conda profile requires both Conda and the `mamba` executable. Its cache uses
 `params.conda_cache_dir` when set and otherwise falls back to the ignored
@@ -396,16 +362,7 @@ PhyloPhlAn 3.1.1 and IQ-TREE 3.0.1 for the `PHYLOPHLAN` process. The stock
 PhyloPhlAn image does not satisfy that complete runtime contract. The repository
 build definition is `containers/phylophlan-iqtree/Dockerfile`; users build or
 publish it and pass the OCI reference through `params.phylophlan_container`.
-Apptainer and Singularity consume the same published image. This prerequisite
-does not affect structured stubs or the scoped local real-tool workflow, which
-do not run production phylogenomics.
-
-Local real-tool validation uses the separate
-`tests/workflows/synthetic_real.nf` entrypoint and
-`tests/config/synthetic_real.config`. It builds a genuine tiny Bowtie2 index and
-runs FastQC, fastp, host removal, both assemblers, and both MetaQUAST evaluations
-with generated reads. It intentionally omits database-heavy and licensed stages
-rather than substituting fake databases in a real-tool run.
+Apptainer and Singularity consume the same published image.
 
 Resource selectors preserve the legacy scheduling intent. Examples include 32
 CPUs/500 GB for MEGAHIT, 32 CPUs/1,800 GB for SPAdes, 24 CPUs/250 GB for DAS
@@ -435,53 +392,5 @@ the database root is not `/`, `/tmp`, this repository, or another Git worktree,
 uses staging and a lock, and writes a manifest plus a Nextflow configuration.
 
 GeneMarkS-2 is validation-only in this mechanism. Its licensed installer and
-key are never downloaded or copied. Normal and HPC test runs only consume the
-prepared configuration; they do not invoke database preparation.
-
-## Benchmark isolation
-
-`tests/workflows/benchmark.nf` is a separate entrypoint. Its selectors exist
-only in test configuration:
-
-```text
-benchmark_assembler = megahit | spades | both
-benchmark_binner    = comebin | metabat2 | semibin2 | vamb | all
-```
-
-`tests/subworkflows/benchmark_binning` reuses production contig filtering,
-CoverM, and binner modules. Single-binner strategies emit that bin set directly
-to the shared production refinement subworkflow. Only `all` joins all four
-mappings into DAS Tool. `both` invokes the normal final combined-catalog
-subworkflow after independent refinement branches.
-
-`tests/scripts/run_variants.py` creates isolated output/work directories and
-launches one or all 15 combinations, optionally concurrently. The benchmark
-configuration writes an execution trace, report, timeline, and DAG per variant.
-
-`tests/scripts/summarize_variants.py` reads native structured outputs and never
-uses MultiQC as its sole metric source. It records missing values explicitly and
-uses the documented lexicographic ranking:
-
-1. strict HQ MAG count;
-2. median completeness;
-3. median contamination;
-4. GUNC failure count;
-5. final non-redundant MAG count;
-6. wall-clock runtime tie-breaker.
-
-No weighted or hidden composite score is calculated.
-
-## External validation boundary
-
-Static checks, helper tests, and structured stubs can run without production
-databases. Real backend validation is conditional on the environment. Docker
-requires a running daemon; the Conda profile requires Conda, Mamba, and
-environment solving; Apptainer/Singularity require their executables and image
-access; container production requires the combined PhyloPhlAn/IQ-TREE image;
-GeneMarkS-2 requires a valid license; database-heavy stages require their full
-versioned resources; and HPC validation requires SLURM and shared storage.
-
-A configured profile must not be described as runtime-tested until its command
-has completed in that environment. The repository keeps pending environment,
-database, license, and HPC checks distinct from successful static or stub
-validation.
+key are never downloaded or copied. Production runs only consume the prepared
+configuration; they do not invoke database preparation.

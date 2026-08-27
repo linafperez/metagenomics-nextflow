@@ -40,36 +40,4 @@ process MULTIQC {
     mv multiqc_output/multiqc_data "${prefix}.multiqc_data"
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-
-    """
-    set -euo pipefail
-
-    mkdir -p "${prefix}.multiqc_data"
-
-    printf '%s\n' \
-        '<!doctype html>' \
-        '<html lang="en">' \
-        '<head><meta charset="utf-8"><title>Metagenomics MultiQC stub report</title></head>' \
-        '<body><h1>Metagenomics MultiQC report</h1><p>Structured stub output.</p></body>' \
-        '</html>' \
-        > "${prefix}.multiqc.html"
-
-    printf '%s\n' \
-        '{' \
-        '  "config_analysis_dir_abs": ["."],' \
-        '  "config_report_title": "Shotgun metagenomics processing evaluation",' \
-        '  "multiqc_version": "1.35",' \
-        '  "report_saved_raw_data": {},' \
-        '  "report_general_stats_data": [],' \
-        '  "stub": true' \
-        '}' \
-        > "${prefix}.multiqc_data/multiqc_data.json"
-
-    printf 'Sample\n' > "${prefix}.multiqc_data/multiqc_general_stats.txt"
-    printf 'Module\tSource\nMultiQC\tstub\n' > "${prefix}.multiqc_data/multiqc_sources.txt"
-    printf 'MultiQC\t1.35\n' > "${prefix}.multiqc_data/multiqc_versions.txt"
-    printf 'MultiQC 1.35 structured stub report completed\n' > "${prefix}.multiqc.log"
-    """
 }

@@ -17,8 +17,6 @@ workflow FINAL_MAG_CATALOG {
     ch_gunc_db
 
     main:
-    def pipeline_root = params.pipeline_root ?: projectDir
-
     ch_megahit_keyed = ch_megahit_mags
         .map { meta, mags -> tuple(meta.id, meta, mags) }
         .join(ch_megahit_quality.map { meta, quality -> tuple(meta.id, quality) })
@@ -35,10 +33,10 @@ workflow FINAL_MAG_CATALOG {
         }
 
     ch_combine_script = channel.value(
-        file("${pipeline_root}/bin/combine_mag_catalogs.py", checkIfExists: true)
+        file("${projectDir}/bin/combine_mag_catalogs.py", checkIfExists: true)
     )
     ch_finalize_script = channel.value(
-        file("${pipeline_root}/bin/finalize_mag_catalog.py", checkIfExists: true)
+        file("${projectDir}/bin/finalize_mag_catalog.py", checkIfExists: true)
     )
 
     COMBINE_MAG_CATALOGS(ch_combined_input, ch_combine_script)

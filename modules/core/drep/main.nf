@@ -59,25 +59,4 @@ process DREP {
     cp "${prefix}.drep/data_tables/Cdb.csv" "${prefix}.clusters.csv"
     """
 
-    stub:
-    def basePrefix = task.ext.prefix ?: meta.id
-    def prefix = "${basePrefix}_${stage}"
-    def magFiles = mags instanceof List ? mags : [mags]
-    def selected = (ani as double) <= 0.951 ? magFiles.take(1) : magFiles
-    def copies = selected.collect { mag ->
-        def magId = mag.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
-        "cp \"${mag}\" \"${prefix}.drep/dereplicated_genomes/${magId}.fa\"\ncp \"${mag}\" \"${prefix}.representatives/${magId}.fa\""
-    }.join('\n')
-    def clusterRows = magFiles.withIndex().collect { mag, index ->
-        def cluster = (ani as double) <= 0.951 ? 'secondary_1' : "secondary_${index + 1}"
-        def magId = mag.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
-        "${magId}.fa,primary_1,${cluster}"
-    }.join('\n')
-    """
-    mkdir -p "${prefix}.drep/dereplicated_genomes" "${prefix}.drep/data_tables" "${prefix}.representatives"
-    ${copies}
-    printf 'genome,primary_cluster,secondary_cluster\n${clusterRows}\n' > "${prefix}.drep/data_tables/Cdb.csv"
-    cp "${prefix}.drep/data_tables/Cdb.csv" "${prefix}.clusters.csv"
-    printf 'dRep stub ${stage} completed at ANI ${ani}\n' > "${prefix}.drep.log"
-    """
 }

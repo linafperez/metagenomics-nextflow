@@ -29,16 +29,4 @@ process FINALIZE_MAG_CATALOG {
     """
     command
 
-    stub:
-    def representativeFiles = representatives instanceof List ? representatives : [representatives]
-    def representativeArgs = representativeFiles.collect { mag -> "\"${mag}\"" }.join(' ')
-    """
-    python3 "${finalize_script}" \\
-        --representatives ${representativeArgs} \\
-        --provenance "${provenance}" \\
-        --quality "${quality}" \\
-        --output-dir final_catalog \\
-        --output-provenance final_catalog.provenance.tsv \\
-        --output-quality final_catalog.quality.tsv
-    """
 }

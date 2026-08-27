@@ -8,8 +8,7 @@ phylogenomics, functional annotation, abundance, and global processing reports.
 
 The normal production workflow always runs both assemblers, all four binners,
 DAS Tool, both assembler-specific refinement paths, and final cross-assembler
-catalog selection. The 15 selectable assembler/binner combinations are isolated
-under `tests/` and never alter production behavior.
+catalog selection.
 
 ## Workflow
 
@@ -168,8 +167,8 @@ Common requirements:
 Local execution uses the Nextflow local executor. Default production resource
 requests preserve the historical workflow, including 500 GB for MEGAHIT and
 1,800 GB for SPAdes. A workstation that cannot satisfy those requests should
-run stubs or a deliberately scoped synthetic workflow; do not lower production
-resources without assessing the dataset.
+use an appropriately sized HPC environment; do not lower production resources
+without assessing the dataset.
 
 HPC execution additionally requires a SLURM cluster, a shared filesystem, a
 site-approved Conda or container runtime, and configured account/queue/QoS
@@ -281,20 +280,20 @@ Environment and software runtime are independent profile dimensions:
 
 - Environment: `--local` or `--hpc`.
 - Runtime: `--docker`, `--conda`, `--apptainer`, or `--singularity`.
-- Mode: `--run`, `--stub`, `--test-local`, or `--test-hpc`.
+- Mode: `--run`.
 - Database preparation: `--prepare-databases`; it is separate and takes no
   runtime flag.
 
-| Environment | Runtime | `--run` | `--stub` | `--test-local` | `--test-hpc` |
-| --- | --- | :---: | :---: | :---: | :---: |
-| local | Docker | yes* | yes | yes | no |
-| local | Conda + Mamba | yes | yes | yes | no |
-| local | Apptainer | yes* | yes | yes | no |
-| local | Singularity | yes* | yes | yes | no |
-| HPC/SLURM | Docker | no | no | no | no |
-| HPC/SLURM | Conda + Mamba | yes | yes | no | yes |
-| HPC/SLURM | Apptainer | yes* | yes | no | yes* |
-| HPC/SLURM | Singularity | yes* | yes | no | yes* |
+| Environment | Runtime | `--run` |
+| --- | --- | :---: |
+| local | Docker | yes* |
+| local | Conda + Mamba | yes |
+| local | Apptainer | yes* |
+| local | Singularity | yes* |
+| HPC/SLURM | Docker | no |
+| HPC/SLURM | Conda + Mamba | yes |
+| HPC/SLURM | Apptainer | yes* |
+| HPC/SLURM | Singularity | yes* |
 
 Docker requires a running daemon. The Conda profile requires both Conda and
 Mamba and enables Mamba solving. Its environment cache defaults to the ignored
@@ -365,41 +364,6 @@ Production examples:
     --slurm_account ACCOUNT --slurm_queue PARTITION --slurm_qos QOS
 ```
 
-Stub examples traverse the production channel graph without real biological
-databases. They generate ignored synthetic fixtures and structured module
-outputs. Stubs validate process contracts and orchestration, not the real tool
-commands or databases.
-
-```bash
-./metagenomics_pipeline.sh --local --docker --stub
-./metagenomics_pipeline.sh --local --conda --stub
-./metagenomics_pipeline.sh --local --apptainer --stub
-```
-
-`--test-local` generates deterministic synthetic reads, builds a real tiny
-Bowtie2 index, and selects the isolated `tests/workflows/synthetic_real.nf`
-entrypoint. That workflow runs real FastQC, fastp, Bowtie2, MEGAHIT, SPAdes, and
-MetaQUAST processes under conservative limits. It deliberately stops before
-database-heavy and licensed stages, so it does not require or accept
-`--database-config`. Its results are written below
-`tests/results/synthetic_real/`.
-
-```bash
-./metagenomics_pipeline.sh --local --conda --test-local
-```
-
-`--test-hpc` is a real production run on SLURM. It requires the generated
-database configuration and an explicit samplesheet; it never prepares or
-redownloads databases.
-
-```bash
-./metagenomics_pipeline.sh --hpc --apptainer --test-hpc \
-    --database-config /shared/db/metagenomics_databases.config \
-    --phylophlan_container registry.example.org/phylophlan-iqtree:3.1.1-3.0.1 \
-    --input /shared/project/samplesheet.csv \
-    --outdir /shared/project/test_hpc_results
-```
-
 Use `--resume` to add Nextflow `-resume`, `--dry-run` to inspect the translated
 command, and `--` to stop launcher option parsing. Run
 `./metagenomics_pipeline.sh --help` for the complete interface.
@@ -432,14 +396,6 @@ nextflow run . -profile hpc,apptainer \
     --eggnog_db /shared/db/eggnog/5.0.2 \
     --interproscan_data /shared/db/interproscan/5.59-91.0/data \
     --outdir /shared/project/results
-```
-
-Direct production stub traversal uses the same profile order as the launcher:
-
-```bash
-python3 tests/scripts/generate_synthetic_data.py
-nextflow run . -profile local,docker,test,stub \
-    -stub-run --stub_run true
 ```
 
 ### Important parameters
@@ -524,108 +480,6 @@ Key deliverables include:
 - `global_processing_evaluation.multiqc.html` and its MultiQC data directory;
 - Nextflow report, timeline, trace, DAG, normalized samplesheet, and
   `software_versions.tsv` under `pipeline_info/`.
-
-## Testing and validation
-
-Generated FASTQ, reference indexes, database placeholders, test results, work
-directories, and runtime caches are ignored by Git.
-
-Static checks:
-
-```bash
-nextflow lint
-python3 -m compileall -q bin tests/scripts
-bash -n metagenomics_pipeline.sh bin/prepare_databases.sh
-python3 -m unittest discover -s tests/scripts -p 'test_*.py'
-```
-
-Production stubs exercise structured downstream contracts without restricted
-software or large databases:
-
-```bash
-./metagenomics_pipeline.sh --local --docker --stub
-./metagenomics_pipeline.sh --local --conda --stub
-./metagenomics_pipeline.sh --local --apptainer --stub
-```
-
-Backend availability in the configuration is not itself proof of a successful
-runtime test. In the current development environment, a running Docker daemon,
-Conda with Mamba, Apptainer/Singularity, all production databases, a
-GeneMarkS-2 license, and SLURM/HPC access have not all been simultaneously
-available. Container production also requires building or publishing the
-combined PhyloPhlAn/IQ-TREE image described above.
-Therefore complete real-data execution, database-heavy real-tool execution,
-licensed GeneMarkS-2 validation, and HPC validation remain external pending
-checks. Stubs must not be reported as real tool success.
-
-## 15-configuration benchmark
-
-The benchmark harness is under `tests/` and reuses production assembly, binning,
-refinement, and final-catalog components. It evaluates:
-
-- assembler: `megahit`, `spades`, or `both`;
-- binning strategy: `comebin`, `metabat2`, `semibin2`, `vamb`, or `all`.
-
-This produces 3 × 5 = 15 variants. An individual-binner variant sends that
-binner's bins directly to the normal refinement path and does not run DAS Tool.
-The `all` strategy runs all four binners and DAS Tool. The `both` assembler
-variants retain independent assembler branches and then apply the normal final
-combined-catalog logic.
-
-Generate ignored fixtures and traverse all 15 graphs with stubs:
-
-```bash
-python3 tests/scripts/generate_synthetic_data.py
-python3 tests/scripts/run_variants.py --local --stub
-```
-
-Validate a particular stub backend or one variant:
-
-```bash
-python3 tests/scripts/run_variants.py --local --docker --stub
-python3 tests/scripts/run_variants.py --local --conda --stub \
-    --variant both_all
-python3 tests/scripts/run_variants.py --local --apptainer --stub \
-    --jobs 2
-```
-
-Run the real matrix later on SLURM using filtered non-host reads and prepared
-CheckM2/GUNC databases:
-
-```bash
-python3 tests/scripts/run_variants.py \
-    --hpc --apptainer --run \
-    --input /shared/project/filtered_reads.csv \
-    --checkm2-db /shared/db/checkm2/1.1.0/uniref100.KO.1.dmnd \
-    --gunc-db /shared/db/gunc/1.0.6/progenomes_2.1/gunc_db_progenomes2.1.dmnd \
-    --results-root /shared/project/benchmark_results \
-    --work-root /scratch/project/benchmark_work \
-    --jobs 3 --resume
-```
-
-Each run writes `tests/results/<assembler>_<binner>/` by default. The runner
-then calls `tests/scripts/summarize_variants.py`, which creates:
-
-- `variant_comparison.tsv`;
-- `variant_ranking.tsv`;
-- `variant_summary.md`;
-- `variant_comparison.json`.
-
-The summarizer extracts native assembly, binning, CheckM2, GUNC, dRep, GTDB,
-MultiQC-link, and Nextflow trace metrics when they exist. Missing values remain
-`NA` or JSON `null`. It ranks variants lexicographically, with no opaque score:
-
-1. more strict high-quality MAGs;
-2. higher median completeness;
-3. lower median contamination;
-4. fewer GUNC failures;
-5. more final non-redundant MAGs;
-6. lower wall-clock runtime as a tie-breaker.
-
-The ranking describes measured outputs only and does not imply unmeasured
-biological superiority. See [tests/README.md](tests/README.md) for the focused
-benchmark interface and [docs/architecture.md](docs/architecture.md) for code
-organization and data contracts.
 
 ## Repository policy
 

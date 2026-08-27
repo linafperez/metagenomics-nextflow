@@ -72,23 +72,4 @@ process INTERPROSCAN {
     test -s "${prefix}.interproscan.json"
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: (meta.mag_id ?: meta.id)
-
-    """
-    set -euo pipefail
-
-    protein_id=\$(awk '/^>/{sub(/^>/, ""); split(\$0, fields, /[[:space:]]+/); print fields[1]; exit}' "${proteins}")
-    protein_id=\${protein_id:-stub_protein_1}
-
-    printf '%s\tstub-md5\t20\tPfam\tPF00001\tStub protein domain\t1\t20\t1e-10\tT\t2026-01-01\tIPR000001\tStub InterPro entry\tGO:0003674\tKEGG:map00010\n' \
-        "\${protein_id}" > "${prefix}.interproscan.tsv"
-
-    printf '##gff-version 3\n%s\tInterProScan\tprotein_match\t1\t20\t1e-10\t+\t.\tID=match1;Name=PF00001;Dbxref=InterPro:IPR000001,GO:0003674\n' \
-        "\${protein_id}" > "${prefix}.interproscan.gff3"
-    printf '[{"xref":[{"id":"%s"}],"matches":[{"signature":{"accession":"PF00001","entry":{"accession":"IPR000001","description":"Stub InterPro entry"}}}]}]\n' \
-        "\${protein_id}" > "${prefix}.interproscan.json"
-
-    printf 'InterProScan stub annotation completed\n' > "${prefix}.interproscan.log"
-    """
 }

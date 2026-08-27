@@ -14,9 +14,8 @@ workflow BINNING {
     ch_filtered_reads
 
     main:
-    def pipeline_root = params.pipeline_root ?: projectDir
     ch_filter_script = channel.value(
-        file("${pipeline_root}/bin/filter_fasta_by_length.py", checkIfExists: true)
+        file("${projectDir}/bin/filter_fasta_by_length.py", checkIfExists: true)
     )
 
     FILTER_CONTIGS(

@@ -9,8 +9,6 @@ workflow MAG_ABUNDANCE_ESTIMATION {
     ch_filtered_reads
 
     main:
-    def pipeline_root = params.pipeline_root ?: projectDir
-
     ch_read_collection = ch_filtered_reads
         .collect(flat: false)
         .map { records ->
@@ -33,7 +31,7 @@ workflow MAG_ABUNDANCE_ESTIMATION {
     COVERM_MAG_ABUNDANCE(ch_coverm_input)
 
     ch_normalization_script = channel.value(
-        file("${pipeline_root}/bin/normalize_coverm_abundance.py", checkIfExists: true)
+        file("${projectDir}/bin/normalize_coverm_abundance.py", checkIfExists: true)
     )
     NORMALIZE_ABUNDANCE(COVERM_MAG_ABUNDANCE.out.abundance, ch_normalization_script)
 

@@ -56,17 +56,4 @@ process CHECKM2 {
     cp "${prefix}.checkm2/quality_report.tsv" "${prefix}.checkm2.quality_report.tsv"
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-    def binFiles = bins instanceof List ? bins : [bins]
-    def rows = binFiles.withIndex().collect { bin, index ->
-        def binId = bin.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
-        "${binId}\t${95.0 + (index % 3)}\t${1.0 + (index % 2)}\tNeural Network (Specific Model)\t11\t0.90\t2000\t300\t2400\t50.0\t8\tNone"
-    }.join('\n')
-    """
-    mkdir -p "${prefix}.checkm2"
-    printf 'Name\tCompleteness\tContamination\tCompleteness_Model_Used\tTranslation_Table_Used\tCoding_Density\tContig_N50\tAverage_Gene_Length\tGenome_Size\tGC_Content\tTotal_Coding_Sequences\tAdditional_Notes\n${rows}\n' > "${prefix}.checkm2/quality_report.tsv"
-    cp "${prefix}.checkm2/quality_report.tsv" "${prefix}.checkm2.quality_report.tsv"
-    printf 'CheckM2 stub evaluation completed\n' > "${prefix}.checkm2.log"
-    """
 }

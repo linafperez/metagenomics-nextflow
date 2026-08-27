@@ -66,20 +66,4 @@ process SEMIBIN2 {
 
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-
-    """
-    set -euo pipefail
-
-    mkdir -p "${prefix}.semibin2.bins" "${prefix}.semibin2/output_bins"
-    awk 'BEGIN { found=0 } /^>/ { if (found) exit; found=1 } found { print }' "${contigs}" > "${prefix}.semibin2.bins/${prefix}.semibin2.1.fa"
-    cp "${prefix}.semibin2.bins/${prefix}.semibin2.1.fa" "${prefix}.semibin2/output_bins/"
-    awk -v bin="${prefix}.semibin2.1" 'BEGIN { OFS="\t" } /^>/ { sub(/^>/, ""); split(\$0, fields, /[[:space:]]+/); print fields[1], bin; exit }' "${contigs}" > "${prefix}.semibin2.contigs2bin.tsv"
-    cp "${prefix}.semibin2.contigs2bin.tsv" "${prefix}.semibin2/contig_bins.tsv"
-    printf 'bin\ttotal_bp\tn_contigs\tN50\tL50\n%s\t1000\t1\t1000\t1\n' "${prefix}.semibin2.1" > "${prefix}.semibin2/bins_info.tsv"
-    printf 'SemiBin2 stub completed\n' > "${prefix}.semibin2/SemiBinRun.log"
-    cp "${prefix}.semibin2/SemiBinRun.log" "${prefix}.semibin2.log"
-
-    """
 }

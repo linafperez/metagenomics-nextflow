@@ -38,20 +38,4 @@ process COMBINE_MAG_CATALOGS {
     """
     command
 
-    stub:
-    def megahitFiles = megahit_mags instanceof List ? megahit_mags : [megahit_mags]
-    def spadesFiles = spades_mags instanceof List ? spades_mags : [spades_mags]
-    def megahitArgs = megahitFiles.collect { mag -> "\"${mag}\"" }.join(' ')
-    def spadesArgs = spadesFiles.collect { mag -> "\"${mag}\"" }.join(' ')
-    """
-    python3 "${combine_script}" \\
-        --megahit-bins ${megahitArgs} \\
-        --spades-bins ${spadesArgs} \\
-        --megahit-quality "${megahit_quality}" \\
-        --spades-quality "${spades_quality}" \\
-        --output-dir combined_catalog \\
-        --provenance combined_catalog.provenance.tsv \\
-        --quality-table combined_catalog.quality.tsv \\
-        --genome-info combined_catalog.genomeInfo.csv
-    """
 }

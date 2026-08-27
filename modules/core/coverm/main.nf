@@ -114,63 +114,6 @@ process COVERM_CONTIG {
 
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-    def ids = sample_ids instanceof List ? sample_ids : [sample_ids]
-    def safe_ids = ids.collect { id -> id.toString().replaceAll(/[^A-Za-z0-9_.-]/, '_') }
-    def bam_args = safe_ids.collect { id -> "\"${id}\"" }.join(' ')
-    def vamb_header = (['contigname'] + safe_ids).join('\\t')
-    def vamb_values = safe_ids.collect { '0' }.join('\\t')
-    def metabat_header = (['contigName', 'contigLen', 'totalAvgDepth'] + safe_ids.collectMany { id -> ["${id}.bam", "${id}.bam-var"] }).join('\\t')
-    def metabat_values = (['1000', '0'] + safe_ids.collectMany { ['0', '0'] }).join('\\t')
-
-    """
-    set -euo pipefail
-
-    mkdir -p bam
-    python3 - ${bam_args} <<'PY'
-    import struct
-    import sys
-    import zlib
-    from pathlib import Path
-
-    sam_header = b"@HD\\tVN:1.6\\tSO:coordinate\\n@SQ\\tSN:stub_contig\\tLN:1000\\n"
-    reference_name = b"stub_contig\\0"
-    raw_bam = (
-        b"BAM\\1"
-        + struct.pack("<i", len(sam_header))
-        + sam_header
-        + struct.pack("<i", 1)
-        + struct.pack("<i", len(reference_name))
-        + reference_name
-        + struct.pack("<i", 1000)
-    )
-    compressor = zlib.compressobj(level=6, wbits=-15)
-    payload = compressor.compress(raw_bam) + compressor.flush()
-    block_size = 18 + len(payload) + 8
-    bgzf_header = bytes.fromhex("1f8b08040000000000ff060042430200") + struct.pack(
-        "<H", block_size - 1
-    )
-    trailer = struct.pack("<II", zlib.crc32(raw_bam) & 0xFFFFFFFF, len(raw_bam))
-    eof_block = bytes.fromhex(
-        "1f8b08040000000000ff0600424302001b0003000000000000000000"
-    )
-
-    for sample_id in sys.argv[1:]:
-        Path("bam", f"{sample_id}.bam").write_bytes(
-            bgzf_header + payload + trailer + eof_block
-        )
-    PY
-    contig_id=\$(awk '/^>/{sub(/^>/, ""); split(\$0, fields, /[[:space:]]+/); print fields[1]; exit}' "${contigs}")
-    contig_id=\${contig_id:-stub_contig}
-
-    printf '%b\n' "${vamb_header}" > "${prefix}.vamb_abundance.tsv"
-    printf '%s\t%b\n' "\${contig_id}" "${vamb_values}" >> "${prefix}.vamb_abundance.tsv"
-    printf '%b\n' "${metabat_header}" > "${prefix}.metabat_depth.tsv"
-    printf '%s\t%b\n' "\${contig_id}" "${metabat_values}" >> "${prefix}.metabat_depth.tsv"
-    printf 'CoverM contig stub completed\n' > "${prefix}.coverm.log"
-
-    """
 }
 
 
@@ -267,24 +210,4 @@ process COVERM_GENOME {
     ' "${prefix}.mag_abundance.raw.tsv" > "${prefix}.mag_abundance.tsv"
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-    def ids = sample_ids instanceof List ? sample_ids : [sample_ids]
-    def safe_ids = ids.collect { id -> id.toString().replaceAll(/[^A-Za-z0-9_.-]/, '_') }
-    def mag_files = mags instanceof List ? mags : [mags]
-    def header = (['Genome'] + safe_ids.collectMany { id -> ["${id} Relative Abundance (%)", "${id} Mean", "${id} Covered Fraction", "${id} Length"] }).join('\\t')
-    def values = safe_ids.collectMany { ['0', '0', '0', '0'] }.join('\\t')
-    def rows = mag_files.collect { mag ->
-        def mag_id = mag.name.replaceFirst(/\.[^.]+$/, '')
-        "printf '%s\\t%b\\n' \"${mag_id}\" \"${values}\" >> \"${prefix}.mag_abundance.tsv\""
-    }.join('\n')
-
-    """
-    set -euo pipefail
-
-    printf '%b\n' "${header}" > "${prefix}.mag_abundance.tsv"
-    ${rows}
-    printf 'CoverM genome stub completed\n' > "${prefix}.coverm.log"
-
-    """
 }

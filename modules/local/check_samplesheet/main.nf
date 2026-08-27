@@ -20,10 +20,4 @@ process CHECK_SAMPLESHEET {
         --output validated_samplesheet.csv
     """
 
-    stub:
-    """
-    python3 "${validation_script}" \\
-        --input "${samplesheet}" \\
-        --output validated_samplesheet.csv
-    """
 }

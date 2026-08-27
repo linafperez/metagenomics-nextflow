@@ -62,21 +62,4 @@ process VAMB {
     ${standardize_bins}
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-
-    """
-    set -euo pipefail
-
-    mkdir -p "${prefix}.vamb.bins" "${prefix}.vamb/bins"
-    awk 'BEGIN { found=0 } /^>/ { if (found) exit; found=1 } found { print }' "${contigs}" > "${prefix}.vamb.bins/${prefix}.vamb.1.fna"
-    cp "${prefix}.vamb.bins/${prefix}.vamb.1.fna" "${prefix}.vamb/bins/"
-    contig_id=\$(awk '/^>/{sub(/^>/, ""); split(\$0, fields, /[[:space:]]+/); print fields[1]; exit}' "${contigs}")
-    contig_id=\${contig_id:-stub_contig}
-    printf '%s\t%s\n' "\${contig_id}" "${prefix}.vamb.1" > "${prefix}.vamb.contigs2bin.tsv"
-    printf 'clustername\tcontigname\n%s\t%s\n' "${prefix}.vamb.1" "\${contig_id}" > "${prefix}.vamb/vae_clusters_unsplit.tsv"
-    printf 'Name\tRadius\tPeak/valley ratio\tKind\tBp\tNcontigs\tMedoid\n%s\t0\t0\tNormal\t1000\t1\t%s\n' "${prefix}.vamb.1" "\${contig_id}" > "${prefix}.vamb/vae_clusters_metadata.tsv"
-    printf 'Vamb stub completed\n' > "${prefix}.vamb/log.txt"
-    cp "${prefix}.vamb/log.txt" "${prefix}.vamb.log"
-    """
 }

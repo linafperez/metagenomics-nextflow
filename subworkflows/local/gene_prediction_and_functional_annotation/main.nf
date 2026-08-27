@@ -14,8 +14,6 @@ workflow GENE_PREDICTION_AND_FUNCTIONAL_ANNOTATION {
     ch_interproscan_data
 
     main:
-    def pipeline_root = params.pipeline_root ?: projectDir
-
     ch_mags_per_genome = ch_final_mags.flatMap { meta, mags ->
         def mag_files = mags instanceof Collection ? mags as List : [mags]
         if (!mag_files) {
@@ -78,7 +76,7 @@ workflow GENE_PREDICTION_AND_FUNCTIONAL_ANNOTATION {
 
     INTEGRATE_ANNOTATIONS(
         ch_integration_input,
-        file("${pipeline_root}/bin/integrate_functional_annotations.py", checkIfExists: true)
+        file("${projectDir}/bin/integrate_functional_annotations.py", checkIfExists: true)
     )
 
     ch_logs = GENEMARKS2.out.log

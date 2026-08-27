@@ -68,23 +68,4 @@ process SPADES {
     fi
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-
-    """
-    {
-        printf '>stub_spades_contig_1\n'
-        count=0
-        while [ "\$count" -lt 2400 ]; do
-            printf 'TGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCA'
-            count=\$((count + 64))
-        done
-        printf '\n'
-    } > "${prefix}.contigs.fa"
-
-    cp "${prefix}.contigs.fa" "${prefix}.scaffolds.fa"
-    printf 'H\tVN:Z:1.0\nS\tstub_spades_contig_1\tTGCATGCA\n' > "${prefix}.assembly.gfa"
-    printf 'SPAdes stub coassembly completed\n' > "${prefix}.spades.log"
-    printf 'Command line: spades.py --meta --dataset stub.dataset.yaml\n' > "${prefix}.spades.params.txt"
-    """
 }

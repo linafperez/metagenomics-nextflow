@@ -32,12 +32,4 @@ process FASTP {
         ${args}
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-    """
-    printf '@stub/1\nACGTACGTACGT\n+\nFFFFFFFFFFFF\n' > "${prefix}_trimmed_1.fastq"
-    printf '@stub/2\nTGCATGCATGCA\n+\nFFFFFFFFFFFF\n' > "${prefix}_trimmed_2.fastq"
-    printf '{"summary":{"before_filtering":{"total_reads":2},"after_filtering":{"total_reads":2}}}\n' > "${prefix}.fastp.json"
-    printf '<html><body>fastp stub</body></html>\n' > "${prefix}.fastp.html"
-    """
 }

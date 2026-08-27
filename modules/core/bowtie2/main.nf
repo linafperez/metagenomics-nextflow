@@ -34,11 +34,4 @@ process BOWTIE2 {
         2> "${prefix}.bowtie2.log"
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-    """
-    printf '@stub/1\nACGTACGTACGT\n+\nFFFFFFFFFFFF\n' | gzip -c > "${prefix}_nonhost_1.fastq.gz"
-    printf '@stub/2\nTGCATGCATGCA\n+\nFFFFFFFFFFFF\n' | gzip -c > "${prefix}_nonhost_2.fastq.gz"
-    printf '2 reads; of these:\n  2 (100.00%%) were paired; of these:\n    2 (100.00%%) aligned concordantly 0 times\n0.00%% overall alignment rate\n' > "${prefix}.bowtie2.log"
-    """
 }

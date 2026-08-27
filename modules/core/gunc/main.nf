@@ -51,17 +51,4 @@ process GUNC {
     cp "\$summary" "${prefix}.gunc.summary.tsv"
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-    def binFiles = bins instanceof List ? bins : [bins]
-    def rows = binFiles.withIndex().collect { bin, index ->
-        def binId = bin.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
-        "${binId}\t${100 + index}\t0.02\t0.01\t0.05\tgenus\t0.90\tTrue"
-    }.join('\n')
-    """
-    mkdir -p "${prefix}.gunc"
-    printf 'genome\tn_genes_called\tcontamination_portion\tn_effective_surplus_clades\tclade_separation_score\ttaxonomic_level\tproportion_genes_retained_in_major_clades\tpass.GUNC\n${rows}\n' > "${prefix}.gunc/GUNC.GTDB.maxCSS_level.tsv"
-    cp "${prefix}.gunc/GUNC.GTDB.maxCSS_level.tsv" "${prefix}.gunc.summary.tsv"
-    printf 'GUNC stub evaluation completed\n' > "${prefix}.gunc.log"
-    """
 }

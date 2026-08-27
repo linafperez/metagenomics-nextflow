@@ -34,19 +34,4 @@ process SELECT_HIGH_QUALITY_MAGS {
     """
     command
 
-    stub:
-    def binFiles = bins instanceof List ? bins : [bins]
-    def binArgs = binFiles.collect { bin -> "\"${bin}\"" }.join(' ')
-    def assembler = meta.assembler ?: meta.branch ?: 'unknown'
-    """
-    python3 "${selection_script}" \\
-        --bins ${binArgs} \\
-        --quality "${quality_report}" \\
-        --output-dir hq_mags \\
-        --selected-table hq_mags.tsv \\
-        --genome-info genomeInfo.csv \\
-        --completeness ${completeness_threshold} \\
-        --contamination ${contamination_threshold} \\
-        --assembler "${assembler}"
-    """
 }

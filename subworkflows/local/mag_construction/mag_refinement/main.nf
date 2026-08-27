@@ -15,8 +15,6 @@ workflow MAG_REFINEMENT {
     ch_gunc_db
 
     main:
-    def pipeline_root = params.pipeline_root ?: projectDir
-
     CHECKM2_RAW(ch_bins, ch_checkm2_db)
     GUNC_RAW(ch_bins, ch_gunc_db)
 
@@ -26,7 +24,7 @@ workflow MAG_REFINEMENT {
         .map { _id, meta, bins, quality -> tuple(meta, bins, quality) }
 
     ch_selection_script = channel.value(
-        file("${pipeline_root}/bin/select_high_quality_mags.py", checkIfExists: true)
+        file("${projectDir}/bin/select_high_quality_mags.py", checkIfExists: true)
     )
 
     SELECT_HIGH_QUALITY_MAGS(

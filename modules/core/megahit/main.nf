@@ -46,20 +46,4 @@ process MEGAHIT {
     mv "${prefix}.megahit/final.contigs.fa" "${prefix}.contigs.fa"
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-
-    """
-    {
-        printf '>stub_megahit_contig_1\n'
-        count=0
-        while [ "\$count" -lt 2400 ]; do
-            printf 'ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT'
-            count=\$((count + 64))
-        done
-        printf '\n'
-    } > "${prefix}.contigs.fa"
-
-    printf 'MEGAHIT stub coassembly completed\n' > "${prefix}.megahit.log"
-    """
 }

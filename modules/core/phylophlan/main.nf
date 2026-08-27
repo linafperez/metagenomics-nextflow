@@ -104,30 +104,4 @@ process PHYLOPHLAN {
     cp "\${alignments[0]}" "${prefix}.phylophlan.alignment.fasta"
     """
 
-    stub:
-    def prefix    = task.ext.prefix ?: meta.id
-    def mag_files = mags instanceof List ? mags : [mags]
-    def entries   = mag_files.collect { mag ->
-        def raw_id = mag.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
-        [id: raw_id.replaceAll(/[^A-Za-z0-9_.-]/, '_')]
-    }
-    def newick = '(' + entries.collect { entry -> "${entry.id}:0.1" }.join(',') + ');'
-    def alignment = entries.collect { entry ->
-        ">${entry.id}\nMSTUBSEQUENCEMSTUBSEQUENCE"
-    }.join('\n')
-
-    """
-    set -euo pipefail
-
-    mkdir -p "${prefix}.phylophlan"
-
-    printf '%s\n' '${alignment}' > "${prefix}.phylophlan/genomes_concatenated.aln"
-
-    printf '%s\n' '${newick}' > "${prefix}.phylophlan/genomes.tre.treefile"
-    cp "${prefix}.phylophlan/genomes_concatenated.aln" "${prefix}.phylophlan.alignment.fasta"
-    cp "${prefix}.phylophlan/genomes.tre.treefile" "${prefix}.phylophlan.tree.nwk"
-
-    printf 'PhyloPhlAn stub phylogenomics completed\n' > "${prefix}.phylophlan/phylophlan.log"
-    printf 'PhyloPhlAn stub phylogenomics completed\n' > "${prefix}.phylophlan.log"
-    """
 }

@@ -5,9 +5,6 @@ set -euo pipefail
 readonly MINIMUM_NEXTFLOW_VERSION="26.04.6"
 readonly PIPELINE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly DATABASE_PREPARER="${PIPELINE_ROOT}/bin/prepare_databases.sh"
-readonly SYNTHETIC_GENERATOR="${PIPELINE_ROOT}/tests/scripts/generate_synthetic_data.py"
-readonly SYNTHETIC_REAL_CONFIG="${PIPELINE_ROOT}/tests/config/synthetic_real.config"
-readonly SYNTHETIC_REAL_WORKFLOW="tests/workflows/synthetic_real.nf"
 
 environment=""
 runtime=""
@@ -36,9 +33,6 @@ Software runtime (select one for pipeline execution):
 
 Mode (select one):
   --run                    Run the complete production workflow.
-  --stub                   Run the complete production graph with module stubs.
-  --test-local             Run real tools with generated local synthetic inputs.
-  --test-hpc               Validate a real production run on SLURM.
   --prepare-databases      Prepare shared production databases separately.
 
 Launcher options:
@@ -55,9 +49,7 @@ option processing explicitly.
 
 Examples:
   ./metagenomics_pipeline.sh --local --docker --run --input samplesheet.csv
-  ./metagenomics_pipeline.sh --local --conda --stub
-  ./metagenomics_pipeline.sh --local --apptainer --test-local
-  ./metagenomics_pipeline.sh --hpc --apptainer --test-hpc \
+  ./metagenomics_pipeline.sh --hpc --apptainer --run \
       --database-config /shared/db/metagenomics_databases.config \
       --input samplesheet.hpc.csv
   ./metagenomics_pipeline.sh --hpc --prepare-databases \
@@ -154,19 +146,6 @@ check_runtime() {
     esac
 }
 
-generate_synthetic_resources() {
-    local -a command=(python3 "${SYNTHETIC_GENERATOR}" --project-dir "${PIPELINE_ROOT}")
-
-    [[ -f "${SYNTHETIC_GENERATOR}" ]] \
-        || die "synthetic data generator was not found: ${SYNTHETIC_GENERATOR}"
-    if [[ "${dry_run}" == true ]]; then
-        print_command "${command[@]}"
-        return
-    fi
-    command -v python3 >/dev/null 2>&1 || die "Python 3 is required to generate test inputs"
-    "${command[@]}"
-}
-
 validate_forwarded_input() {
     local index argument next_argument
     for ((index = 0; index < ${#forwarded_args[@]}; index++)); do
@@ -216,18 +195,6 @@ while (($#)); do
         --run)
             set_selection mode run "${mode}"
             mode="run"
-            ;;
-        --stub)
-            set_selection mode stub "${mode}"
-            mode="stub"
-            ;;
-        --test-local)
-            set_selection mode test-local "${mode}"
-            mode="test-local"
-            ;;
-        --test-hpc)
-            set_selection mode test-hpc "${mode}"
-            mode="test-hpc"
             ;;
         --prepare-databases)
             set_selection mode prepare-databases "${mode}"
@@ -309,40 +276,16 @@ fi
 if [[ "${environment}" == "hpc" && "${runtime}" == "docker" ]]; then
     die "Docker is not supported by the SLURM launcher; use --apptainer or --conda"
 fi
-if [[ "${mode}" == "test-local" && "${environment}" != "local" ]]; then
-    die "--test-local requires --local"
-fi
-if [[ "${mode}" == "test-hpc" && "${environment}" != "hpc" ]]; then
-    die "--test-hpc requires --hpc"
-fi
-if [[ "${mode}" == "test-hpc" && -z "${database_config}" ]]; then
-    die "--test-hpc requires --database-config from database preparation"
-fi
-if [[ "${mode}" == "test-local" && -n "${database_config}" ]]; then
-    die "--test-local does not use database-heavy pipeline stages"
-fi
 if [[ -n "${database_config}" && ! -r "${database_config}" ]]; then
     die "database configuration is not readable: ${database_config}"
 fi
-if [[ "${mode}" == "run" || "${mode}" == "test-hpc" ]]; then
+if [[ "${mode}" == "run" ]]; then
     validate_forwarded_input
 fi
 
 declare -a profiles=()
 case "${mode}" in
-    stub)
-        generate_synthetic_resources
-        profiles=("${environment}" "${runtime}" test stub)
-        ;;
-    test-local)
-        generate_synthetic_resources
-        [[ -f "${SYNTHETIC_REAL_CONFIG}" ]] \
-            || die "synthetic test config was not found: ${SYNTHETIC_REAL_CONFIG}"
-        [[ -f "${PIPELINE_ROOT}/${SYNTHETIC_REAL_WORKFLOW}" ]] \
-            || die "synthetic test workflow was not found: ${SYNTHETIC_REAL_WORKFLOW}"
-        profiles=(local "${runtime}" test)
-        ;;
-    run|test-hpc)
+    run)
         profiles=("${environment}" "${runtime}")
         ;;
     *)
@@ -355,21 +298,7 @@ declare -a nextflow_command=(nextflow)
 if [[ -n "${database_config}" ]]; then
     nextflow_command+=(-c "${database_config}")
 fi
-if [[ "${mode}" == "test-local" ]]; then
-    nextflow_command+=(-c "${SYNTHETIC_REAL_CONFIG}")
-fi
 nextflow_command+=(run "${PIPELINE_ROOT}" -profile "${profile_list}")
-if [[ "${mode}" == "test-local" ]]; then
-    nextflow_command+=(-main-script "${SYNTHETIC_REAL_WORKFLOW}")
-    nextflow_command+=(
-        --pipeline_root "${PIPELINE_ROOT}"
-        --input "${PIPELINE_ROOT}/tests/generated_data/samplesheet.csv"
-        --outdir "${PIPELINE_ROOT}/tests/results/synthetic_real"
-    )
-fi
-if [[ "${mode}" == "stub" ]]; then
-    nextflow_command+=(-stub-run --stub_run true)
-fi
 if [[ "${resume}" == true ]]; then
     nextflow_command+=(-resume)
 fi

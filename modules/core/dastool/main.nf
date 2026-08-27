@@ -51,20 +51,4 @@ process DASTOOL {
         > "${prefix}_DASTool.log" 2>&1
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-
-    """
-    set -euo pipefail
-
-    mkdir -p "${prefix}_DASTool_bins"
-    awk 'BEGIN { found=0 } /^>/ { if (found) exit; found=1 } found { print }' "${contigs}" > "${prefix}_DASTool_bins/${prefix}.dastool.1.fa"
-    contig_id=\$(awk '/^>/{sub(/^>/, ""); split(\$0, fields, /[[:space:]]+/); print fields[1]; exit}' "${contigs}")
-    contig_id=\${contig_id:-stub_contig}
-    printf '%s\t%s\n' "\${contig_id}" "${prefix}.dastool.1" > "${prefix}_DASTool_contigs2bin.tsv"
-    printf 'bin\tuniqueSCGs\tredundantSCGs\tSCGcompleteness\tSCGredundancy\tsize\tcontigs\tN50\tbinScore\n%s\t36\t0\t90\t0\t1000\t1\t1000\t0.9\n' "${prefix}.dastool.1" > "${prefix}_DASTool_summary.tsv"
-    printf 'bin\tbinSet\tuniqueSCGs\tredundantSCGs\tSCGcompleteness\tSCGredundancy\tbinScore\n%s\tCOMEBin\t36\t0\t90\t0\t0.9\n' "${prefix}.dastool.1" > "${prefix}_allBins.eval"
-    printf 'DAS Tool 1.1.7\nStub refinement completed\n' > "${prefix}_DASTool.log"
-    printf '>stub_contig_1\nMKK\n' > "${prefix}_proteins.faa"
-    """
 }

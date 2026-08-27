@@ -66,18 +66,4 @@ process COMEBIN {
 
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-
-    """
-    set -euo pipefail
-
-    mkdir -p "${prefix}.comebin.bins" "${prefix}.comebin/comebin_res/comebin_res_bins"
-    awk 'BEGIN { found=0 } /^>/ { if (found) exit; found=1 } found { print }' "${contigs}" > "${prefix}.comebin.bins/${prefix}.comebin.1.fa"
-    cp "${prefix}.comebin.bins/${prefix}.comebin.1.fa" "${prefix}.comebin/comebin_res/comebin_res_bins/"
-    awk -v bin="${prefix}.comebin.1" 'BEGIN { OFS="\t" } /^>/ { sub(/^>/, ""); split(\$0, fields, /[[:space:]]+/); print fields[1], bin; exit }' "${contigs}" > "${prefix}.comebin.contigs2bin.tsv"
-    cp "${prefix}.comebin.contigs2bin.tsv" "${prefix}.comebin/comebin_res/comebin_res.tsv"
-    printf 'COMEBin stub completed\n' > "${prefix}.comebin.log"
-
-    """
 }

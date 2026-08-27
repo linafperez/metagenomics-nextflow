@@ -16,10 +16,6 @@
       "default": "results",
       "description": "Result publication directory."
     },
-    "pipeline_root": {
-      "type": ["string", "null"],
-      "description": "Internal project-root override used by isolated test entrypoints."
-    },
     "publish_dir_mode": {
       "type": "string",
       "enum": ["copy", "copyNoFollow", "link", "move", "rellink", "symlink"],
@@ -129,7 +125,6 @@
       "type": "string",
       "minLength": 1,
       "default": "14d"
-    },
-    "stub_run": {"type": "boolean", "default": false}
+    }
   }
 }

@@ -146,20 +146,4 @@ process GENEMARKS2 {
     test -s "${prefix}.genes.gff"
     """
 
-    stub:
-    def prefix = task.ext.prefix ?: (meta.mag_id ?: meta.id)
-    def mag_id = meta.mag_id ?: meta.id
-
-    """
-    set -euo pipefail
-
-    printf '>%s|stub_contig|1\nMKKIGYSAPRQTKEAIEKLA\n' \
-        '${mag_id}' > "${prefix}.proteins.faa"
-    printf '>%s|stub_contig|1\nATGAAAAAAATCGGTTATTCAGCTCCTCGTCAAACCAAAGAAGCTATTGAAAAACTGGCT\n' \
-        '${mag_id}' > "${prefix}.cds.fna"
-    printf '##gff-version 3\nstub_contig\tGeneMarkS-2\tCDS\t1\t63\t.\t+\t0\tID=%s|stub_contig|1;gene_id=%s|stub_contig|1;protein_id=%s|stub_contig|1;mag_id=%s\n' \
-        '${mag_id}' '${mag_id}' '${mag_id}' '${mag_id}' > "${prefix}.genes.gff"
-
-    printf 'GeneMarkS-2 stub gene prediction completed\n' > "${prefix}.genemarks2.log"
-    """
 }

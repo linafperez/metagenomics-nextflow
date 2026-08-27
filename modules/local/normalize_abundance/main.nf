@@ -22,11 +22,4 @@ process NORMALIZE_ABUNDANCE {
     """
     command
 
-    stub:
-    def prefix = task.ext.prefix ?: meta.id
-    """
-    python3 "${normalization_script}" \\
-        --input "${abundance}" \\
-        --output "${prefix}.mag_abundance.long.tsv"
-    """
 }
