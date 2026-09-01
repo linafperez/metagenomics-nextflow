@@ -20,8 +20,9 @@ input:
 output:
   - results:
       type: directory
-      description: Complete MetaQUAST result directory
+      description: Complete MetaQUAST result directory, retained only when save_intermediates is enabled
       pattern: "*.metaquast"
+      optional: true
   - report_tsv:
       type: file
       description: Tab-separated assembly statistics

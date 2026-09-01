@@ -31,11 +31,14 @@ workflow QUALITY_CONTROL_AND_FILTERING {
         }
 
     FASTP(ch_reads_after_raw_fastqc)
-    FASTQC_CLEAN(FASTP.out.reads)
+    ch_fastp_reads = FASTP.out.reads.map { meta, reads ->
+        tuple(meta, reads.toList().sort { left, right -> left.name <=> right.name })
+    }
+    FASTQC_CLEAN(ch_fastp_reads)
 
     // The second keyed join enforces the requested cleaned-read FastQC stage
     // before Bowtie2 without making the reusable FastQC module pass reads on.
-    ch_clean_reads_keyed = FASTP.out.reads.map { meta, reads ->
+    ch_clean_reads_keyed = ch_fastp_reads.map { meta, reads ->
         tuple(meta.id, meta, reads)
     }
 
@@ -55,13 +58,17 @@ workflow QUALITY_CONTROL_AND_FILTERING {
         ch_host_index_prefix
     )
 
+    ch_filtered_reads = BOWTIE2_HOST_REMOVAL.out.reads.map { meta, reads ->
+        tuple(meta, reads.toList().sort { left, right -> left.name <=> right.name })
+    }
+
     ch_versions = FASTQC_RAW.out.versions
         .mix(FASTP.out.versions)
         .mix(FASTQC_CLEAN.out.versions)
         .mix(BOWTIE2_HOST_REMOVAL.out.versions)
 
     emit:
-    filtered_reads = BOWTIE2_HOST_REMOVAL.out.reads
+    filtered_reads = ch_filtered_reads
     raw_fastqc     = FASTQC_RAW.out.zip
     fastp_json     = FASTP.out.json
     clean_fastqc   = FASTQC_CLEAN.out.zip

@@ -52,8 +52,9 @@ output:
       pattern: '*_DASTool.log'
   - proteins:
       type: file
-      description: Proteins predicted internally by DAS Tool
+      description: Proteins predicted internally by DAS Tool, retained only when save_intermediates is enabled
       pattern: '*_proteins.faa'
+      optional: true
   - versions:
       type: value
       description: Process, tool, and software version tuple

@@ -1,0 +1,5 @@
+Run,BioProject,BioSample,Experiment,LibraryLayout,LibraryStrategy,LibrarySource,Platform,Model,Consent,spots,bases,spots_with_mates,size_MB,download_path
+SRR000002,PRJNA123456,SAMN000001,SRX000002,PAIRED,WGS,METAGENOMIC,ILLUMINA,Illumina NovaSeq 6000,public,3,300,3,1.2,https://example.invalid/SRR000002
+DRR000004,PRJNA123456,,,PAIRED,WGS,METAGENOMIC,BGISEQ,BGISEQ-500,public,2,200,2,0.8,https://example.invalid/DRR000004
+ERR000003,PRJNA123456,,ERX000003,PAIRED,WGS,METAGENOMIC,ILLUMINA,Illumina HiSeq 2500,public,4,400,4,1.5,https://example.invalid/ERR000003
+SRR000001,PRJNA123456,SAMN000001,SRX000001,PAIRED,WGS,METAGENOMIC,ILLUMINA,Illumina NovaSeq 6000,public,5,500,5,2.3,https://example.invalid/SRR000001

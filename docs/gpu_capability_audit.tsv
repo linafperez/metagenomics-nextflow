@@ -1,0 +1,25 @@
+tool	pinned_version	official_gpu_support	implemented	device_option_or_mechanism	gpu_environment	cpu_fallback	reproducibility_or_reason	official_evidence
+NCBI SRA Toolkit	3.4.1	No documented GPU execution	No		CPU SRA image	Yes	I/O-bound acquisition; no pinned-version GPU interface	https://github.com/ncbi/sra-tools
+pigz	2.8	No documented GPU execution	No		CPU SRA image	Yes	CPU parallel compression has no pinned-version GPU interface	https://github.com/madler/pigz/tree/v2.8
+FastQC	0.12.1	No documented GPU execution	No		Biocontainers CPU image	Yes	No device path in pinned tool	https://www.bioinformatics.babraham.ac.uk/projects/fastqc/
+fastp	1.0.1	No documented GPU execution	No		Biocontainers CPU image	Yes	No device path in pinned tool	https://github.com/OpenGene/fastp
+Bowtie2	2.5.4	No documented GPU execution	No		Biocontainers CPU image	Yes	No device path in pinned tool	https://bowtie-bio.sourceforge.net/bowtie2/manual.shtml
+MEGAHIT	1.2.9	No usable GPU path; legacy --use-gpu/--gpu-mem are deprecated and ignored	No		Biocontainers CPU image	Yes	Enabling the ignored flag would falsely claim acceleration	https://github.com/voutcn/megahit/blob/v1.2.9/src/megahit
+metaSPAdes / SPAdes	4.2.0	No documented CUDA/GPU option	No		Biocontainers CPU image	Yes	Pinned running interface has no device path	https://github.com/ablab/spades/blob/v4.2.0/docs/running.md
+MetaQUAST	5.3.0	No documented GPU execution	No		Biocontainers CPU image	Yes	No pinned-version device path	https://github.com/ablab/quast
+CoverM	0.7.0	No documented GPU execution	No		Biocontainers CPU image	Yes	No pinned-version device path	https://github.com/wwood/CoverM/tree/v0.7.0
+COMEBin	1.0.4	Yes with CUDA-enabled PyTorch and visible NVIDIA device	Yes	One accelerator; CUDA_VISIBLE_DEVICES; runtime asserts PyTorch 2.1.2, CUDA 11.8, CUDA availability, and exactly one visible device	Custom COMEBin 1.0.4 / PyTorch 2.1.2 / CUDA 11.8 image or Conda env	Yes; CPU default explicitly clears CUDA_VISIBLE_DEVICES	Neural training can produce device-dependent numerical/stochastic variation; algorithm/options otherwise unchanged	https://github.com/ziyewang/COMEBin/tree/1.0.4
+MetaBAT2	2.18	No documented GPU execution	No		Biocontainers CPU image	Yes	No pinned-version device path	https://bitbucket.org/berkeleylab/metabat
+SemiBin2	1.5.0	Yes	Yes	--engine gpu; one accelerator; runtime asserts PyTorch 2.1.2, CUDA 11.8, CUDA availability, and exactly one visible device	Custom SemiBin 1.5.0 / PyTorch 2.1.2 / CUDA 11.8 image or Conda env	Yes; --engine cpu is the default	Training is stochastic and GPU numerics may differ; binning mode and scientific options are unchanged	https://semibin.readthedocs.io/en/v1.5.0/usage/
+Vamb	5.0.4	Yes with CUDA-compatible PyTorch and NVIDIA GPU	Yes	--cuda; one accelerator; runtime asserts PyTorch 2.6.0, CUDA 12.4, CUDA availability, and exactly one visible device	Custom Vamb 5.0.4 / PyTorch 2.6.0 / CUDA 12.4 image or Conda env	Yes; --cuda is absent by default	Pinned docs state PyTorch training is not guaranteed reproducible even with a seed; scientific thresholds/options are unchanged	https://vamb.readthedocs.io/en/stable/how_to_run.html
+DAS Tool	1.1.7	No documented GPU execution	No		Biocontainers CPU image	Yes	No pinned-version device path	https://github.com/cmks/DAS_Tool
+CheckM2	1.1.0	No documented user-selectable GPU mode	No		Biocontainers CPU image	Yes	A TensorFlow dependency alone is not evidence of supported GPU execution	https://github.com/chklovski/CheckM2
+GUNC	1.0.6	No documented GPU execution	No		Biocontainers CPU image	Yes	No pinned-version device path	https://github.com/grp-bork/gunc
+dRep	3.6.2	No documented GPU execution	No		Biocontainers CPU image	Yes	No pinned-version device path	https://github.com/MrOlm/drep
+GTDB-Tk	2.6.1	No documented GPU execution	No		Biocontainers CPU image	Yes	No pinned-version device path	https://github.com/Ecogenomics/GTDBTk
+PhyloPhlAn + IQ-TREE	3.1.1 + 3.0.1	No documented GPU execution in the pinned workflow interfaces	No		Custom CPU image	Yes	No verified device-equivalent path	https://github.com/biobakery/phylophlan
+GeneMarkS-2	1.15	No documented GPU execution	No		External licensed CPU installation	Yes	No pinned-version device path	http://exon.gatech.edu/GeneMark/
+eggNOG-mapper	2.1.13	No documented GPU execution	No		Biocontainers CPU image	Yes	No pinned-version device path	https://github.com/eggnogdb/eggnog-mapper
+InterProScan	5.59-91.0	No documented GPU execution	No		Biocontainers CPU image	Yes	No pinned-version device path	https://interproscan-docs.readthedocs.io/
+MultiQC	1.35	No relevant GPU execution path	No		Biocontainers CPU image	Yes	Report aggregation does not expose a supported GPU backend	https://github.com/MultiQC/MultiQC
+Repository-local validation/catalog/normalization helpers	1.0.0	Not applicable	No		Python CPU environment	Yes	Deterministic file/metadata transformations are not GPU candidates	repository-local source

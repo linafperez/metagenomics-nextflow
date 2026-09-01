@@ -144,6 +144,8 @@ process GENEMARKS2 {
     test -s "${prefix}.proteins.faa"
     test -s "${prefix}.cds.fna"
     test -s "${prefix}.genes.gff"
+    rm -rf -- genemark_install genemark_user
+    rm -f -- "${prefix}.raw.faa" "${prefix}.raw.fnn" "${prefix}.raw.gff"
     """
 
 }

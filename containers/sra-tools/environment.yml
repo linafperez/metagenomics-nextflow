@@ -1,0 +1,7 @@
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.12.11
+  - sra-tools=3.4.1
+  - pigz=2.8

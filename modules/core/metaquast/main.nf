@@ -9,7 +9,7 @@ process METAQUAST {
     tuple val(meta), path(assembly)
 
     output:
-    tuple val(meta), path('*.metaquast'), emit: results
+    tuple val(meta), path('*.metaquast'), optional: true, emit: results
     tuple val(meta), path('*.metaquast.report.tsv'), emit: report_tsv
     tuple val(meta), path('*.metaquast.report.html'), emit: report_html
     tuple val(meta), path('*.metaquast.log'), emit: log
@@ -21,8 +21,11 @@ process METAQUAST {
     script:
     def args   = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: meta.id
+    def keep_native_outputs = params.save_intermediates.toString().toBoolean()
 
     """
+    set -euo pipefail
+
     echo "Running MetaQUAST assembly evaluation"
 
     export MPLCONFIGDIR="\$PWD/.matplotlib"
@@ -38,6 +41,10 @@ process METAQUAST {
 
     cp "${prefix}.metaquast/report.tsv" "${prefix}.metaquast.report.tsv"
     cp "${prefix}.metaquast/report.html" "${prefix}.metaquast.report.html"
+    test -s "${prefix}.metaquast.report.tsv"
+    test -s "${prefix}.metaquast.report.html"
+    rm -rf -- .matplotlib
+    ${keep_native_outputs ? '' : "rm -rf -- '${prefix}.metaquast'"}
     """
 
 }

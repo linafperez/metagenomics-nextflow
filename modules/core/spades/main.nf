@@ -66,6 +66,12 @@ process SPADES {
     if [ -f "${prefix}.spades/assembly_graph_with_scaffolds.gfa" ]; then
         mv "${prefix}.spades/assembly_graph_with_scaffolds.gfa" "${prefix}.assembly.gfa"
     fi
+
+    test -s "${prefix}.contigs.fa"
+    test -s "${prefix}.spades.log"
+    test -s "${prefix}.spades.params.txt"
+    rm -rf -- "${prefix}.spades"
+    rm -f -- "${prefix}.spades.stdout.log"
     """
 
 }

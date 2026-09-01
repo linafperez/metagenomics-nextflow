@@ -1,0 +1,3 @@
+timestamp	work_bytes	checkpoint_bytes	sra_cache_bytes	sra_scratch_bytes	sra_temp_bytes	results_bytes	database_bytes	total_dynamic_bytes	total_measured_bytes	measurement_complete	errors
+2024-01-01T01:00:00Z	800	0	0	0	0	100	100	900	1000	true	
+2024-01-01T04:00:00Z	100	0	0	0	0	700	100	800	900	true	

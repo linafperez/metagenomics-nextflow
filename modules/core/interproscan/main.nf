@@ -70,6 +70,7 @@ process INTERPROSCAN {
     test -f "${prefix}.interproscan.tsv"
     test -s "${prefix}.interproscan.gff3"
     test -s "${prefix}.interproscan.json"
+    rm -rf -- tmp interproscan_user
     """
 
 }

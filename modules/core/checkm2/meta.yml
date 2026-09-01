@@ -20,8 +20,9 @@ input:
 output:
   - results:
       type: directory
-      description: Native CheckM2 output directory
+      description: Native CheckM2 output directory, retained only when save_intermediates is enabled
       pattern: '*.checkm2'
+      optional: true
   - quality:
       type: file
       description: Completeness and contamination table

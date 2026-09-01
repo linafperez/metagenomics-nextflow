@@ -10,7 +10,7 @@ process GUNC {
     path database
 
     output:
-    tuple val(meta), path('*.gunc'), emit: results
+    tuple val(meta), path('*.gunc'), optional: true, emit: results
     tuple val(meta), path('*.gunc.summary.tsv'), emit: summary
     tuple val(meta), path('*.gunc.log'), emit: log
     tuple val("${task.process}"), val('gunc'), val('1.0.6'), emit: versions
@@ -21,6 +21,7 @@ process GUNC {
     script:
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: meta.id
+    def keep_native_outputs = params.save_intermediates.toString().toBoolean()
     def binFiles = bins instanceof List ? bins : [bins]
     def names = binFiles.collect { bin -> bin.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '') }
     if (names.toSet().size() != names.size()) {
@@ -32,13 +33,16 @@ process GUNC {
     }.join('\n')
 
     """
-    mkdir -p input_bins
+    set -euo pipefail
+
+    mkdir -p input_bins "${prefix}.gunc" "${prefix}.gunc.tmp"
     ${links}
 
     gunc run \\
         --input_dir input_bins \\
         --db_file "${database}" \\
         --out_dir "${prefix}.gunc" \\
+        --temp_dir "${prefix}.gunc.tmp" \\
         --threads ${task.cpus} \\
         ${args} \\
         > "${prefix}.gunc.log" 2>&1
@@ -49,6 +53,9 @@ process GUNC {
         exit 1
     fi
     cp "\$summary" "${prefix}.gunc.summary.tsv"
+    test -s "${prefix}.gunc.summary.tsv"
+    rm -rf -- input_bins "${prefix}.gunc.tmp"
+    ${keep_native_outputs ? '' : "rm -rf -- '${prefix}.gunc'"}
     """
 
 }

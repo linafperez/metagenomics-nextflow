@@ -79,7 +79,7 @@ process GTDBTK_CLASSIFY {
     """
     set -euo pipefail
 
-    mkdir -p genomes
+    mkdir -p genomes gtdbtk_pplacer_scratch gtdbtk_tmp
     ${stage_commands}
 
     printf '%s\n' '${batch_lines}' > genomes.batch.tsv
@@ -94,6 +94,8 @@ process GTDBTK_CLASSIFY {
         --prefix "${prefix}" \
         --cpus ${task.cpus} \
         --pplacer_cpus ${pplacer_cpus} \
+        --scratch_dir "\$PWD/gtdbtk_pplacer_scratch" \
+        --tmpdir "\$PWD/gtdbtk_tmp" \
         ${args} \
         2>&1 | tee "${prefix}.gtdbtk.log"
 
@@ -111,6 +113,10 @@ process GTDBTK_CLASSIFY {
     else
         printf '%s\n' '${summary_header}' > "${prefix}.gtdbtk.ar53.summary.tsv"
     fi
+    test -s "${prefix}.gtdbtk.bac120.summary.tsv"
+    test -s "${prefix}.gtdbtk.ar53.summary.tsv"
+    rm -rf -- genomes gtdbtk_pplacer_scratch gtdbtk_tmp
+    rm -f -- genomes.batch.tsv
     """
 
 }

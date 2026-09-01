@@ -20,8 +20,9 @@ input:
 output:
   - results:
       type: directory
-      description: Native GUNC output directory
+      description: Native GUNC output directory, retained only when save_intermediates is enabled
       pattern: '*.gunc'
+      optional: true
   - summary:
       type: file
       description: Consolidated GUNC summary table

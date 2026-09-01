@@ -23,6 +23,7 @@ process DASTOOL {
     script:
     def args   = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: meta.id
+    def keep_native_outputs = params.save_intermediates.toString().toBoolean()
 
     """
     set -euo pipefail
@@ -47,8 +48,23 @@ process DASTOOL {
         --search_engine diamond \
         --write_bins \
         --write_bin_evals \
-        ${args} \
-        > "${prefix}_DASTool.log" 2>&1
+        ${args}
+
+    test -n "\$(find "${prefix}_DASTool_bins" -type f \( -name '*.fa' -o -name '*.fna' -o -name '*.fasta' \) -size +0c -print -quit)"
+    test -s "${prefix}_DASTool_summary.tsv"
+    test -s "${prefix}_DASTool_contigs2bin.tsv"
+    test -s "${prefix}_allBins.eval"
+    test -s "${prefix}_DASTool.log"
+
+    rm -f -- \
+        "${prefix}.seqlength" \
+        "${prefix}_proteins.faa.bacteria.scg" \
+        "${prefix}_proteins.faa.archaea.scg" \
+        "${prefix}_proteins.faa.findSCG.b6" \
+        "${prefix}_proteins.faa.all.b6" \
+        "${prefix}_proteins.faa.scg.candidates.faa" \
+        all_prot.dmnd
+    ${keep_native_outputs ? '' : "rm -f -- '${prefix}_proteins.faa'"}
     """
 
 }

@@ -11,8 +11,9 @@ process VAMB {
     output:
     tuple val(meta), path('*.bins/*.{fa,fna,fasta}', arity: '1..*'), emit: bins
     tuple val(meta), path('*.contigs2bin.tsv'), emit: contigs2bin
-    tuple val(meta), path('*.vamb'), emit: native_outputs
+    tuple val(meta), path('*.vamb'), optional: true, emit: native_outputs
     tuple val(meta), path('*.vamb.log'), emit: log
+    tuple val(meta), path('*.gpu_metrics.tsv'), optional: true, emit: gpu_metrics
     tuple val("${task.process}"), val('vamb'), val('5.0.4'), emit: versions
 
     when:
@@ -21,6 +22,69 @@ process VAMB {
     script:
     def args   = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: meta.id
+    def keep_native_outputs = params.save_intermediates.toString().toBoolean()
+    def bin_transfer = keep_native_outputs ? 'cp' : 'mv'
+    def gpu_enabled = params.enableGpu.toString().toBoolean()
+    def cuda_option = gpu_enabled ? '--cuda' : ''
+    def gpu_interval = params.gpuTelemetryInterval as int
+    if (gpu_enabled && gpu_interval < 1) {
+        error 'gpuTelemetryInterval must be at least one second'
+    }
+    def session_id = workflow.sessionId.toString()
+    def attempt = task.attempt.toString()
+    def gpu_metrics_file = "${prefix}.VAMB.__SESSION_ID__.__ATTEMPT__.gpu_metrics.tsv"
+        .replace('__SESSION_ID__', session_id)
+        .replace('__ATTEMPT__', attempt)
+    def gpu_guard = gpu_enabled ? '''
+    python3 - <<'PY'
+import torch
+
+if torch.__version__.split('+', 1)[0] != '2.6.0':
+    raise SystemExit(f'Vamb GPU mode requires PyTorch 2.6.0; found {torch.__version__}')
+if torch.version.cuda != '12.4':
+    raise SystemExit(f'Vamb GPU mode requires CUDA 12.4 PyTorch; found {torch.version.cuda}')
+if not torch.cuda.is_available():
+    raise SystemExit('Vamb GPU mode cannot access CUDA')
+if torch.cuda.device_count() != 1:
+    raise SystemExit(f'Vamb GPU mode requires exactly one visible device; found {torch.cuda.device_count()}')
+PY
+    '''.stripIndent() : ''
+    def gpu_monitor = gpu_enabled ? '''
+    GPU_METRICS_FILE='__METRICS_FILE__'
+    GPU_MONITOR_PID=''
+    printf 'timestamp\tprocess\tsample_id\tsession_id\tattempt\tgpu_index\tgpu_uuid\tgpu_name\tutilization_gpu_percent\tmemory_used_mib\tmemory_total_mib\n' > "$GPU_METRICS_FILE"
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        (
+            while :; do
+                timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                nvidia-smi --query-gpu=index,uuid,name,utilization.gpu,memory.used,memory.total \
+                    --format=csv,noheader,nounits 2>/dev/null \
+                    | sed 's/,[[:space:]]*/,/g' \
+                    | while IFS=, read -r gpu_index gpu_uuid gpu_name gpu_util gpu_memory_used gpu_memory_total; do
+                        printf '%s\t__PROCESS__\t__SAMPLE_ID__\t__SESSION_ID__\t__ATTEMPT__\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                            "$timestamp" "$gpu_index" "$gpu_uuid" "$gpu_name" "$gpu_util" "$gpu_memory_used" "$gpu_memory_total"
+                    done >> "$GPU_METRICS_FILE"
+                sleep __INTERVAL__
+            done
+        ) &
+        GPU_MONITOR_PID=$!
+    fi
+    stop_gpu_monitor() {
+        if [[ -n "$GPU_MONITOR_PID" ]]; then
+            kill "$GPU_MONITOR_PID" 2>/dev/null || true
+            wait "$GPU_MONITOR_PID" 2>/dev/null || true
+            GPU_MONITOR_PID=''
+        fi
+    }
+    trap stop_gpu_monitor EXIT
+    '''.stripIndent()
+        .replace('__METRICS_FILE__', gpu_metrics_file)
+        .replace('__PROCESS__', 'VAMB')
+        .replace('__SAMPLE_ID__', meta.id.toString())
+        .replace('__SESSION_ID__', session_id)
+        .replace('__ATTEMPT__', attempt)
+        .replace('__INTERVAL__', gpu_interval.toString()) : ''
+    def gpu_finish = gpu_enabled ? 'stop_gpu_monitor\ntrap - EXIT' : ''
     def standardize_bins = '''
     shopt -s nullglob
     native_bins=("$NATIVE_BINS"/*.fa "$NATIVE_BINS"/*.fna "$NATIVE_BINS"/*.fasta)
@@ -28,7 +92,7 @@ process VAMB {
         echo "Vamb did not materialize any FASTA bins" >&2
         exit 1
     fi
-    cp -- "${native_bins[@]}" "$BINS_DIR/"
+    __BIN_TRANSFER__ -- "${native_bins[@]}" "$BINS_DIR/"
 
     : > "$MAP_FILE"
     bin_files=("$BINS_DIR"/*.fa "$BINS_DIR"/*.fna "$BINS_DIR"/*.fasta)
@@ -38,12 +102,14 @@ process VAMB {
         awk -v bin="$bin_name" 'BEGIN { OFS="\t" } /^>/ { sub(/^>/, ""); split($0, fields, /[[:space:]]+/); print fields[1], bin }' "$bin_file" >> "$MAP_FILE"
     done
     test -s "$MAP_FILE"
-    '''.stripIndent()
+    '''.stripIndent().replace('__BIN_TRANSFER__', bin_transfer)
 
     """
     set -euo pipefail
 
     mkdir -p "${prefix}.vamb.bins"
+    ${gpu_guard}
+    ${gpu_monitor}
     vamb bin default \
         --fasta "${contigs}" \
         --abundance_tsv "${vamb_abundance}" \
@@ -53,13 +119,15 @@ process VAMB {
         -e 100 \
         -q 25 75 \
         -p ${task.cpus} \
+        ${cuda_option} \
         ${args} \
         2> >(tee "${prefix}.vamb.log" >&2)
+    ${gpu_finish}
 
     NATIVE_BINS="${prefix}.vamb/bins"
     BINS_DIR="${prefix}.vamb.bins"
     MAP_FILE="${prefix}.vamb.contigs2bin.tsv"
     ${standardize_bins}
+    ${keep_native_outputs ? '' : "rm -rf -- '${prefix}.vamb'"}
     """
-
 }

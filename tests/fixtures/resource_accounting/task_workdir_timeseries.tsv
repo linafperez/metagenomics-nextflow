@@ -1,0 +1,5 @@
+timestamp	workdir	work_bytes
+2024-01-01T00:30:00Z	/monitor/work/aa/task_fastp	10000
+2024-01-01T01:15:00Z	/monitor/work/aa/task_fastp	8000
+2024-01-01T01:15:00Z	/monitor/work/bb/task_megahit	30000
+2024-01-01T02:15:00Z	/monitor/work/cc/task_gtdbtk	20000

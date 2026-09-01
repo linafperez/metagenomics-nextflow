@@ -44,6 +44,8 @@ process MEGAHIT {
         > "${prefix}.megahit.log" 2>&1
 
     mv "${prefix}.megahit/final.contigs.fa" "${prefix}.contigs.fa"
+    test -s "${prefix}.contigs.fa"
+    rm -rf -- "${prefix}.megahit"
     """
 
 }

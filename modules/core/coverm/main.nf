@@ -63,7 +63,8 @@ process COVERM_CONTIG {
     """
     set -euo pipefail
 
-    mkdir -p reads cache bam
+    mkdir -p reads cache bam coverm_tmp
+    export TMPDIR="\$PWD/coverm_tmp"
     ${link_commands}
 
     coverm contig \
@@ -111,6 +112,11 @@ process COVERM_CONTIG {
         --output-file "${prefix}.metabat_depth.tsv" \
         ${coverage_args} \
         2> >(tee -a "${prefix}.coverm.log" >&2)
+
+    test -s "${prefix}.metabat_depth.tsv"
+    test -s "${prefix}.vamb_abundance.tsv"
+    rm -rf -- reads cache coverm_tmp
+    rm -f -- "${prefix}.mapping_mean.tsv" "${prefix}.mean_depth.raw.tsv"
 
     """
 
@@ -170,7 +176,8 @@ process COVERM_GENOME {
     """
     set -euo pipefail
 
-    mkdir -p reads
+    mkdir -p reads coverm_tmp
+    export TMPDIR="\$PWD/coverm_tmp"
     ${link_commands}
 
     coverm genome \
@@ -208,6 +215,10 @@ process COVERM_GENOME {
         }
         { print }
     ' "${prefix}.mag_abundance.raw.tsv" > "${prefix}.mag_abundance.tsv"
+
+    test -s "${prefix}.mag_abundance.tsv"
+    rm -rf -- reads coverm_tmp
+    rm -f -- "${prefix}.mag_abundance.raw.tsv"
     """
 
 }

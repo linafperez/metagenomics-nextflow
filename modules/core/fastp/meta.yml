@@ -17,8 +17,8 @@ input:
 output:
   - reads:
       type: file
-      description: Trimmed paired-end FASTQ files
-      pattern: '*_trimmed_*.fastq'
+      description: Trimmed paired-end gzip-compressed FASTQ files
+      pattern: '*_trimmed_*.fastq.gz'
   - json:
       type: file
       description: Machine-readable fastp report

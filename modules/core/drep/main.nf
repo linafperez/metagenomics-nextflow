@@ -15,7 +15,7 @@ process DREP {
     output:
     tuple val(meta), path('*.representatives/*.fa', arity: '1..*'), emit: representatives
     tuple val(meta), path('*.clusters.csv'), emit: clusters
-    tuple val(meta), path('*.drep'), emit: results
+    tuple val(meta), path('*.drep'), optional: true, emit: results
     tuple val(meta), path('*.drep.log'), emit: log
     tuple val("${task.process}"), val('drep'), val('3.6.2'), emit: versions
 
@@ -26,6 +26,7 @@ process DREP {
     def args = task.ext.args ?: ''
     def basePrefix = task.ext.prefix ?: meta.id
     def prefix = "${basePrefix}_${stage}"
+    def keep_native_outputs = params.save_intermediates.toString().toBoolean()
     def magFiles = mags instanceof List ? mags : [mags]
     def links = magFiles.collect { mag ->
         def magId = mag.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '')
@@ -57,6 +58,10 @@ process DREP {
     mkdir -p "${prefix}.representatives"
     cp "${prefix}.drep"/dereplicated_genomes/*.fa "${prefix}.representatives/"
     cp "${prefix}.drep/data_tables/Cdb.csv" "${prefix}.clusters.csv"
+    test -n "\$(find "${prefix}.representatives" -type f -name '*.fa' -size +0c -print -quit)"
+    test -s "${prefix}.clusters.csv"
+    rm -rf -- input_mags
+    ${keep_native_outputs ? '' : "rm -rf -- '${prefix}.drep'"}
     """
 
 }

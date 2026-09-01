@@ -10,7 +10,7 @@ process CHECKM2 {
     path database
 
     output:
-    tuple val(meta), path('*.checkm2'), emit: results
+    tuple val(meta), path('*.checkm2'), optional: true, emit: results
     tuple val(meta), path('*.checkm2.quality_report.tsv'), emit: quality
     tuple val(meta), path('*.checkm2.log'), emit: log
     tuple val("${task.process}"), val('checkm2'), val('1.1.0'), emit: versions
@@ -21,6 +21,7 @@ process CHECKM2 {
     script:
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: meta.id
+    def keep_native_outputs = params.save_intermediates.toString().toBoolean()
     def binFiles = bins instanceof List ? bins : [bins]
     def names = binFiles.collect { bin -> bin.name.replaceFirst(/(?i)\.(fa|fna|fasta)(\.gz)?$/, '') }
     if (names.toSet().size() != names.size()) {
@@ -32,6 +33,8 @@ process CHECKM2 {
     }.join('\n')
 
     """
+    set -euo pipefail
+
     mkdir -p input_bins
     ${links}
 
@@ -54,6 +57,9 @@ process CHECKM2 {
         > "${prefix}.checkm2.log" 2>&1
 
     cp "${prefix}.checkm2/quality_report.tsv" "${prefix}.checkm2.quality_report.tsv"
+    test -s "${prefix}.checkm2.quality_report.tsv"
+    rm -rf -- input_bins
+    ${keep_native_outputs ? '' : "rm -rf -- '${prefix}.checkm2'"}
     """
 
 }

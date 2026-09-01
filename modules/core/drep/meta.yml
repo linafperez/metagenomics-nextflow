@@ -37,8 +37,9 @@ output:
       pattern: '*.clusters.csv'
   - results:
       type: directory
-      description: Native dRep work directory
+      description: Native dRep work directory, retained only when save_intermediates is enabled
       pattern: '*.drep'
+      optional: true
   - log:
       type: file
       description: dRep execution log

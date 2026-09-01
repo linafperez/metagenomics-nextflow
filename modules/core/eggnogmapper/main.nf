@@ -41,6 +41,8 @@ process EGGNOGMAPPER {
     fi
 
     echo "Running eggNOG-mapper functional annotation"
+    mkdir -p eggnog_tmp
+    export TMPDIR="\$PWD/eggnog_tmp"
 
     emapper.py \
         -i "${proteins}" \
@@ -57,6 +59,8 @@ process EGGNOGMAPPER {
     test -s "${prefix}.emapper.annotations"
     test -s "${prefix}.emapper.seed_orthologs"
     test -s "${prefix}.emapper.orthologs"
+    rm -rf -- eggnog_tmp
+    rm -f -- "${prefix}.emapper.hits"
     """
 
 }

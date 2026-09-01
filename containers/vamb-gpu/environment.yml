@@ -1,0 +1,10 @@
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - vamb=5.0.4
+  - pytorch=2.6.0
+  - pytorch-cuda=12.4

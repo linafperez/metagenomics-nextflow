@@ -102,6 +102,9 @@ process PHYLOPHLAN {
         exit 1
     fi
     cp "\${alignments[0]}" "${prefix}.phylophlan.alignment.fasta"
+    test -s "${prefix}.phylophlan.tree.nwk"
+    test -s "${prefix}.phylophlan.alignment.fasta"
+    rm -rf -- genomes databases
     """
 
 }

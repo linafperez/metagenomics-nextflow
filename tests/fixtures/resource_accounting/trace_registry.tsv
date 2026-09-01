@@ -1,0 +1,4 @@
+invocation_id	trace_path	session_id	stage	started_at	finished_at	trace_raw	launch_dir
+initial	raw_trace.tsv	session-initial	main	2024-01-01T00:00:00Z	2024-01-01T01:30:00Z	true	/
+resume	human_trace.tsv	session-resume	main	2024-01-01T02:00:00Z	2024-01-01T04:00:00Z	false	/
+initial	raw_trace.tsv	session-initial	main	2024-01-01T00:00:00Z	2024-01-01T01:30:00Z	true	/
