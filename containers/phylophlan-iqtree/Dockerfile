@@ -7,3 +7,7 @@ RUN micromamba install --yes --name base --file /tmp/phylophlan-environment.yml 
     && micromamba clean --all --yes
 
 ENV PATH="/opt/conda/bin:${PATH}"
+
+RUN python --version \
+    && phylophlan --version \
+    && iqtree2 --version
