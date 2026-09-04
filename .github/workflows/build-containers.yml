@@ -1,0 +1,63 @@
+name: Build and publish custom containers
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "containers/sra-tools/**"
+      - "containers/phylophlan-iqtree/**"
+      - "modules/core/phylophlan/environment.yml"
+      - ".github/workflows/build-containers.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-sra-tools:
+    name: Build SRA Tools container
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push SRA Tools image
+        uses: docker/build-push-action@v6
+        with:
+          context: containers/sra-tools
+          file: containers/sra-tools/Dockerfile
+          push: true
+          tags: ghcr.io/linafperez/metagenomics-sra-tools:3.4.1-pigz-2.8
+
+  build-phylophlan-iqtree:
+    name: Build PhyloPhlAn IQ-TREE container
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push PhyloPhlAn IQ-TREE image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: containers/phylophlan-iqtree/Dockerfile
+          push: true
+          tags: ghcr.io/linafperez/metagenomics-phylophlan-iqtree:3.1.1-3.0.1
