@@ -460,6 +460,11 @@ def normalize_rows(
         model = _lookup(raw, "model")
         download_path = _lookup(raw, "download_path")
 
+        # This pipeline processes shotgun metagenomics only.
+        # Ignore every SRA record that is not WGS metagenomic data.
+        if strategy != "WGS" or source != "METAGENOMIC":
+            continue
+
         row = RunRow(
             source_index=index,
             values={
@@ -528,10 +533,6 @@ def normalize_rows(
 
         if layout != "PAIRED":
             row.add_reason("library_layout_not_paired" if layout else "missing_library_layout")
-        if strategy != "WGS":
-            row.add_reason("library_strategy_not_wgs" if strategy else "missing_library_strategy")
-        if source != "METAGENOMIC":
-            row.add_reason("library_source_not_metagenomic" if source else "missing_library_source")
         if not platform:
             row.add_reason("missing_platform")
         elif platform not in allowed_platforms:
