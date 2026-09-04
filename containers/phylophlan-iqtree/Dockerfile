@@ -10,4 +10,4 @@ ENV PATH="/opt/conda/bin:${PATH}"
 
 RUN python --version \
     && phylophlan --version \
-    && iqtree2 --version
+    && iqtree --version
