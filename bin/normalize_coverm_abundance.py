@@ -17,6 +17,7 @@ METRICS = {
 }
 OUTPUT_FIELDS = (
     "sample",
+    "group",
     "mag_id",
     "relative_abundance_percent",
     "mean_coverage",
@@ -28,6 +29,7 @@ OUTPUT_FIELDS = (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, type=Path)
+    parser.add_argument("--sample-metadata", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args()
 
@@ -94,14 +96,50 @@ def validate_metric(value: str | None, metric: str, sample: str, mag_id: str) ->
         )
 
 
+def load_sample_metadata(path: Path) -> dict[str, str]:
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        required = {"sample_id", "group"}
+        if not reader.fieldnames or not required.issubset(reader.fieldnames):
+            raise ValueError(
+                "Sample metadata must contain sample_id and group columns"
+            )
+        groups: dict[str, str] = {}
+        for row_number, row in enumerate(reader, start=2):
+            if None in row:
+                raise ValueError(
+                    f"Sample metadata row {row_number} contains unexpected fields"
+                )
+            sample_id = (row.get("sample_id") or "").strip()
+            group = (row.get("group") or "").strip()
+            if not sample_id:
+                raise ValueError(f"Sample metadata row {row_number} has an empty sample_id")
+            if sample_id in groups:
+                raise ValueError(f"Sample metadata duplicates sample_id {sample_id!r}")
+            groups[sample_id] = group
+    if not groups:
+        raise ValueError("Sample metadata contains no sample rows")
+    return groups
+
+
 def main() -> int:
     args = parse_args()
+    sample_groups = load_sample_metadata(args.sample_metadata)
     with args.input.open(newline="", encoding="utf-8-sig") as input_handle:
         reader = csv.DictReader(input_handle, delimiter="\t")
         if not reader.fieldnames:
             raise ValueError("CoverM abundance table has no header")
         genome_column, samples = parse_columns(reader.fieldnames)
         rows = list(reader)
+
+    if set(samples) != set(sample_groups):
+        missing = sorted(set(samples) - set(sample_groups))
+        extra = sorted(set(sample_groups) - set(samples))
+        raise ValueError(
+            "CoverM samples do not exactly match sample metadata"
+            + (f"; missing metadata: {', '.join(missing)}" if missing else "")
+            + (f"; extra metadata: {', '.join(extra)}" if extra else "")
+        )
 
     output_rows: list[dict[str, str]] = []
     seen_mags: set[str] = set()
@@ -126,6 +164,7 @@ def main() -> int:
             output_rows.append(
                 {
                     "sample": sample,
+                    "group": sample_groups[sample],
                     "mag_id": mag_id,
                     **{metric: row[column] for metric, column in columns.items()},
                 }

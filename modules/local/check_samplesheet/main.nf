@@ -8,16 +8,20 @@ process CHECK_SAMPLESHEET {
     input:
     path samplesheet
     path validation_script
+    val group_column
 
     output:
     path 'validated_samplesheet.csv', emit: csv
+    path 'sample_metadata.tsv', emit: metadata
     tuple val("${task.process}"), val('python'), val('3.12'), emit: versions
 
     script:
     """
     python3 "${validation_script}" \\
         --input "${samplesheet}" \\
-        --output validated_samplesheet.csv
+        --output validated_samplesheet.csv \\
+        --metadata-output sample_metadata.tsv \\
+        --group-column "${group_column}"
     """
 
 }

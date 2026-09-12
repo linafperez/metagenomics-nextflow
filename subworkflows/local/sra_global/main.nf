@@ -1,12 +1,12 @@
 #!/usr/bin/env nextflow
 
-include { METAGENOMICS_GLOBAL } from '../subworkflows/local/metagenomics_global/main'
-include { FINALIZE_SRA_GLOBAL_RUN } from '../modules/local/sra_preprocessing/main'
+include { METAGENOMICS_GLOBAL } from '../metagenomics_global/main'
+include { FINALIZE_SRA_GLOBAL_RUN } from '../../../modules/local/sra_preprocessing/main'
 
 workflow SRA_GLOBAL {
     main:
-    if (!params.sraCheckpointManifest || !params.sraProject) {
-        error 'SRA global analysis requires --sraCheckpointManifest and --sraProject'
+    if (!params.sraCheckpointManifest || !params.sraSampleMetadata || !params.sraProject) {
+        error 'SRA global analysis requires --sraCheckpointManifest, --sraSampleMetadata, and --sraProject'
     }
 
     ch_checkpoint_rows = channel
@@ -18,9 +18,11 @@ workflow SRA_GLOBAL {
             id: row.sample_id,
             single_end: false,
             biosample_accession: row.biosample_accession,
+            group: row.group ?: '',
             identity_source: row.identity_source,
             sample_order: row.sample_order.toInteger(),
-            run_accessions: row.run_accessions.tokenize(';')
+            run_accessions: row.run_accessions.tokenize(';'),
+            selection_file_sha256: row.selection_file_sha256
         ]
         tuple(meta, [
             file(row.read_1, checkIfExists: true),
@@ -48,22 +50,19 @@ workflow SRA_GLOBAL {
 
     ch_static_versions = channel.of(
         tuple('RESOLVE_SRA_PROJECT', 'python', '3.12.11'),
-        tuple('VALIDATE_SRA_PROJECT', 'sra_project_resolver', '1.0.0'),
-        tuple('CHECK_SRA_CHECKPOINTS', 'sra_checkpoint_manager', '1.0.0')
+        tuple('VALIDATE_SRA_PROJECT', 'sra_project_resolver', '2.0.0'),
+        tuple('CHECK_SRA_CHECKPOINTS', 'sra_checkpoint_manager', '2.0.0')
     )
 
     METAGENOMICS_GLOBAL(
         ch_filtered_reads,
         ch_persisted_reports,
-        ch_preprocessing_versions.mix(ch_static_versions)
+        ch_preprocessing_versions.mix(ch_static_versions),
+        channel.value(file(params.sraSampleMetadata, checkIfExists: true))
     )
 
-    ch_multiqc_html = METAGENOMICS_GLOBAL.out.multiqc_report.map { _meta, report ->
-        report
-    }
-    ch_abundance_long = METAGENOMICS_GLOBAL.out.mag_abundance.map { _meta, table ->
-        table
-    }
+    ch_multiqc_html = METAGENOMICS_GLOBAL.out.multiqc_report.map { _meta, report -> report }
+    ch_abundance_long = METAGENOMICS_GLOBAL.out.mag_abundance.map { _meta, table -> table }
     def durable_multiqc_path = file(
         "${params.outdir}/06_global_processing_evaluation/global_processing_evaluation.multiqc.html"
     ).toString()

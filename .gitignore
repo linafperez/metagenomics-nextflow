@@ -24,6 +24,8 @@ __pycache__/
 # Large biological data
 RAW/
 raw/
+!assets/raw/
+!assets/raw/PRJNA782492_metagenomic_samples.tsv
 databases/
 database/
 db/

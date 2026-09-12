@@ -1,7 +1,8 @@
 #!/usr/bin/env nextflow
 
-include { SRA_ACQUIRE; PERSIST_SRA_CHECKPOINT } from '../modules/local/sra_preprocessing/main'
-include { QUALITY_CONTROL_AND_FILTERING } from '../subworkflows/local/quality_control_and_filtering/main'
+include { SRATOOLS_ACQUIRE } from '../../../modules/core/sratools/main'
+include { PERSIST_SRA_CHECKPOINT } from '../../../modules/local/sra_preprocessing/main'
+include { QUALITY_CONTROL_AND_FILTERING } from '../quality_control_and_filtering/main'
 
 workflow SRA_SAMPLE_PREPROCESSING {
     main:
@@ -25,6 +26,34 @@ workflow SRA_SAMPLE_PREPROCESSING {
     }
 
     ch_manifest = channel.value(file(params.sraManifest, checkIfExists: true))
+    ch_sample_meta = channel
+        .fromPath(params.sraManifest, checkIfExists: true)
+        .splitCsv(header: true, sep: '\t')
+        .filter { row -> row.sample_id == params.sraSampleId }
+        .collect()
+        .map { rows ->
+            if (!rows) {
+                error "SRA sample ${params.sraSampleId} is absent from the frozen manifest"
+            }
+            def groups = rows.collect { row -> row.group ?: '' }.toSet()
+            def biosamples = rows.collect { row -> row.biosample_accession }.toSet()
+            def hashes = rows.collect { row -> row.selection_file_sha256 }.toSet()
+            if (groups.size() != 1 || biosamples.size() != 1 || hashes.size() != 1) {
+                error "SRA sample ${params.sraSampleId} has contradictory frozen metadata"
+            }
+            [
+                id: params.sraSampleId,
+                single_end: false,
+                biosample_accession: biosamples.first(),
+                group: groups.first(),
+                identity_source: 'BioSample',
+                sample_order: rows.first().sample_order.toInteger(),
+                run_accessions: rows.sort { left, right -> left.run_order.toInteger() <=> right.run_order.toInteger() }
+                    .collect { row -> row.run_accession },
+                selection_file_sha256: hashes.first()
+            ]
+        }
+
     ch_acquisition_helper = channel.value(
         file("${projectDir}/bin/acquire_sra_sample.py", checkIfExists: true)
     )
@@ -32,8 +61,8 @@ workflow SRA_SAMPLE_PREPROCESSING {
         file("${projectDir}/bin/manage_sra_checkpoints.py", checkIfExists: true)
     )
 
-    SRA_ACQUIRE(
-        channel.value(params.sraSampleId),
+    SRATOOLS_ACQUIRE(
+        ch_sample_meta,
         ch_manifest,
         ch_acquisition_helper,
         channel.value(params.sraScratchDir),
@@ -41,11 +70,6 @@ workflow SRA_SAMPLE_PREPROCESSING {
         channel.value(params.sraTempDir),
         channel.value(params.sraMaxSize)
     )
-
-    ch_raw_reads = SRA_ACQUIRE.out.reads.map { sample_id, reads ->
-        def ordered_reads = reads.toList().sort { left, right -> left.name <=> right.name }
-        tuple([id: sample_id, single_end: false], ordered_reads)
-    }
 
     def host_index_prefix = file(params.host_bowtie2_index).name
     ch_host_index = channel
@@ -59,7 +83,7 @@ workflow SRA_SAMPLE_PREPROCESSING {
         }
 
     QUALITY_CONTROL_AND_FILTERING(
-        ch_raw_reads,
+        SRATOOLS_ACQUIRE.out.reads,
         ch_host_index,
         channel.value(host_index_prefix)
     )
@@ -69,7 +93,7 @@ workflow SRA_SAMPLE_PREPROCESSING {
         .mix(QUALITY_CONTROL_AND_FILTERING.out.fastp_json.map { _meta, path -> path })
         .mix(QUALITY_CONTROL_AND_FILTERING.out.clean_fastqc.map { _meta, paths -> paths })
         .mix(QUALITY_CONTROL_AND_FILTERING.out.bowtie2_logs.map { _meta, path -> path })
-        .mix(SRA_ACQUIRE.out.versions)
+        .mix(SRATOOLS_ACQUIRE.out.versions)
         .flatten()
         .collect(flat: false)
 

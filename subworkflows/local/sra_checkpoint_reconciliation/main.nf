@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-include { CHECK_SRA_CHECKPOINTS } from '../modules/local/sra_preprocessing/main'
+include { CHECK_SRA_CHECKPOINTS } from '../../../modules/local/sra_preprocessing/main'
 
 workflow SRA_CHECKPOINT_RECONCILIATION {
     main:
@@ -18,4 +18,5 @@ workflow SRA_CHECKPOINT_RECONCILIATION {
     manifest = CHECK_SRA_CHECKPOINTS.out.manifest
     pending  = CHECK_SRA_CHECKPOINTS.out.pending
     status   = CHECK_SRA_CHECKPOINTS.out.status
+    metadata = CHECK_SRA_CHECKPOINTS.out.metadata
 }

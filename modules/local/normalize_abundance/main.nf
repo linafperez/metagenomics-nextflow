@@ -6,7 +6,7 @@ process NORMALIZE_ABUNDANCE {
     conda "${moduleDir}/environment.yml"
 
     input:
-    tuple val(meta), path(abundance)
+    tuple val(meta), path(abundance), path(sample_metadata)
     path normalization_script
 
     output:
@@ -18,6 +18,7 @@ process NORMALIZE_ABUNDANCE {
     def command = """
     python3 "${normalization_script}" \\
         --input "${abundance}" \\
+        --sample-metadata "${sample_metadata}" \\
         --output "${prefix}.mag_abundance.long.tsv"
     """
     command

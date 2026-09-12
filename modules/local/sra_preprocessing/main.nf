@@ -1,46 +1,3 @@
-process SRA_ACQUIRE {
-    tag "${sample_id}"
-    label 'process_high'
-
-    container "${params.sraContainer}"
-    containerOptions "${params.sraContainerOptions ?: ''}"
-    conda "${moduleDir}/environment.yml"
-
-    input:
-    val sample_id
-    path run_manifest
-    path acquisition_helper
-    val scratch_root
-    val cache_root
-    val temporary_root
-    val maximum_size
-
-    output:
-    tuple val(sample_id), path("${sample_id}_R*.fastq.gz", arity: 2), emit: reads
-    path 'sra_acquisition_versions.tsv', emit: versions
-
-    script:
-    """
-    prefetch --version 2>&1 | grep -F '3.4.1' >/dev/null
-    fasterq-dump --version 2>&1 | grep -F '3.4.1' >/dev/null
-    pigz --version 2>&1 | grep -F '2.8' >/dev/null
-
-    python3 "${acquisition_helper}" \
-        --manifest "${run_manifest}" \
-        --sample-id "${sample_id}" \
-        --output-dir . \
-        --scratch-dir "${scratch_root}" \
-        --prefetch-dir "${cache_root}" \
-        --temp-dir "${temporary_root}" \
-        --threads ${task.cpus} \
-        --max-size "${maximum_size}" \
-        --force
-
-    printf 'SRA_ACQUIRE\tsra-tools\t3.4.1\nSRA_ACQUIRE\tpigz\t2.8\nSRA_ACQUIRE\tpython\t3.12.11\n' \
-        > sra_acquisition_versions.tsv
-    """
-}
-
 process PERSIST_SRA_CHECKPOINT {
     tag "${meta.id}"
     label 'process_medium'
@@ -110,6 +67,7 @@ process CHECK_SRA_CHECKPOINTS {
     path 'sra_checkpoint_manifest.tsv', emit: manifest
     path 'sra_pending_samples.tsv', emit: pending
     path 'sra_checkpoint_status.json', emit: status
+    path 'sra_checkpoint_sample_metadata.tsv', emit: metadata
 
     script:
     def complete_argument = require_complete ? '--require-complete' : ''
@@ -120,6 +78,7 @@ process CHECK_SRA_CHECKPOINTS {
         --output-manifest sra_checkpoint_manifest.tsv \
         --pending-output sra_pending_samples.tsv \
         --status-output sra_checkpoint_status.json \
+        --metadata-output sra_checkpoint_sample_metadata.tsv \
         ${complete_argument}
     """
 }
@@ -169,7 +128,7 @@ def describe(source, durable_path):
 
 with open('sra_global_success.json', 'w', encoding='utf-8') as handle:
     json.dump({
-        'schema_version': 1,
+        'schema_version': 2,
         'project_accession': '${project_accession}',
         'status': 'complete',
         'completed_at_utc': datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z'),

@@ -7,6 +7,7 @@ workflow MAG_ABUNDANCE_ESTIMATION {
     take:
     ch_final_mags
     ch_filtered_reads
+    ch_sample_metadata
 
     main:
     ch_read_collection = ch_filtered_reads
@@ -33,7 +34,12 @@ workflow MAG_ABUNDANCE_ESTIMATION {
     ch_normalization_script = channel.value(
         file("${projectDir}/bin/normalize_coverm_abundance.py", checkIfExists: true)
     )
-    NORMALIZE_ABUNDANCE(COVERM_MAG_ABUNDANCE.out.abundance, ch_normalization_script)
+    ch_normalization_input = COVERM_MAG_ABUNDANCE.out.abundance
+        .combine(ch_sample_metadata)
+        .map { meta, abundance, sample_metadata ->
+            tuple(meta, abundance, sample_metadata)
+        }
+    NORMALIZE_ABUNDANCE(ch_normalization_input, ch_normalization_script)
 
     ch_versions = COVERM_MAG_ABUNDANCE.out.versions
         .mix(NORMALIZE_ABUNDANCE.out.versions)

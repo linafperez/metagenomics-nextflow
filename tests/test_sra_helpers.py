@@ -18,9 +18,23 @@ RESOLVER = REPOSITORY / "bin" / "resolve_sra_project.py"
 ACQUIRE = REPOSITORY / "bin" / "acquire_sra_sample.py"
 CHECKPOINTS = REPOSITORY / "bin" / "manage_sra_checkpoints.py"
 FIXTURES = Path(__file__).with_name("fixtures")
+DEFAULT_SELECTION = FIXTURES / "sra_samples_valid.tsv"
 
 
 def run_command(arguments: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    if (
+        arguments
+        and Path(arguments[0]) == RESOLVER
+        and "--validate-existing" not in arguments
+        and "--selection-file" not in arguments
+    ):
+        arguments = [
+            *arguments,
+            "--selection-file",
+            str(DEFAULT_SELECTION),
+            "--group-column",
+            "group",
+        ]
     return subprocess.run(
         [sys.executable, *arguments],
         text=True,
@@ -36,6 +50,11 @@ def read_tsv(path: Path) -> list[dict[str, str]]:
 
 
 class ResolverTests(unittest.TestCase):
+    def write_selection(self, root: Path, content: str) -> Path:
+        selection = root / "selection.tsv"
+        selection.write_text(content, encoding="utf-8")
+        return selection
+
     def test_offline_resolution_is_deterministic_and_preserves_identity(self) -> None:
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
             fixture = FIXTURES / "runinfo_valid.csv"
@@ -68,25 +87,20 @@ class ResolverTests(unittest.TestCase):
             rows = read_tsv(Path(first) / "sra_project_manifest.tsv")
             self.assertEqual(
                 [row["run_accession"] for row in rows],
-                ["DRR000004", "ERR000003", "SRR000001", "SRR000002"],
+                ["SRR000001", "SRR000002"],
             )
             by_run = {row["run_accession"]: row for row in rows}
             self.assertEqual(by_run["SRR000001"]["sample_id"], "SAMN000001")
             self.assertEqual(by_run["SRR000002"]["sample_id"], "SAMN000001")
-            self.assertEqual(by_run["ERR000003"]["sample_id"], "ERX000003")
-            self.assertEqual(by_run["ERR000003"]["identity_source"], "Experiment")
-            self.assertIn("missing_biosample_used_experiment", by_run["ERR000003"]["metadata_warnings"])
-            self.assertEqual(by_run["DRR000004"]["sample_id"], "DRR000004")
-            self.assertEqual(by_run["DRR000004"]["identity_source"], "Run")
-            self.assertIn("missing_experiment_used_run", by_run["DRR000004"]["metadata_warnings"])
             samples = read_tsv(Path(first) / "sra_sample_manifest.tsv")
-            self.assertEqual(len(samples), 3)
+            self.assertEqual(len(samples), 1)
             biosample = next(row for row in samples if row["sample_id"] == "SAMN000001")
             self.assertEqual(biosample["run_count"], "2")
             self.assertEqual(biosample["run_accessions"], "SRR000001;SRR000002")
+            self.assertEqual(biosample["group"], "Group_A")
             summary = json.loads((Path(first) / "sra_project_summary.json").read_text())
             self.assertTrue(summary["valid"])
-            self.assertEqual(summary["eligible_run_count"], 4)
+            self.assertEqual(summary["eligible_run_count"], 2)
             self.assertEqual(summary["excluded_run_count"], 0)
 
     def test_invalid_project_writes_reports_without_contacting_ncbi(self) -> None:
@@ -116,11 +130,13 @@ class ResolverTests(unittest.TestCase):
                     str(FIXTURES / "runinfo_invalid.csv"),
                     "--output-dir",
                     temporary,
+                    "--selection-file",
+                    str(FIXTURES / "sra_samples_invalid.tsv"),
                 ]
             )
             self.assertEqual(result.returncode, 2)
             exclusions = read_tsv(Path(temporary) / "sra_project_exclusions.tsv")
-            self.assertEqual(len(exclusions), 8)
+            self.assertEqual(len(exclusions), 7)
             reasons = ";".join(row["exclusion_reason"] for row in exclusions)
             for reason in (
                 "library_layout_not_paired",
@@ -128,14 +144,208 @@ class ResolverTests(unittest.TestCase):
                 "library_source_not_metagenomic",
                 "unsupported_platform",
                 "controlled_or_restricted_access",
-                "spots_with_mates_does_not_equal_spots",
                 "duplicate_run_accession",
             ):
                 self.assertIn(reason, reasons)
             summary = json.loads((Path(temporary) / "sra_project_summary.json").read_text())
             self.assertFalse(summary["valid"])
-            self.assertEqual(summary["eligible_run_count"], 1)
-            self.assertEqual(summary["excluded_run_count"], 8)
+            self.assertEqual(summary["eligible_run_count"], 2)
+            self.assertEqual(summary["excluded_run_count"], 7)
+            self.assertEqual(
+                summary["metadata_warning_counts"]["spots_with_mates_differs_from_spots"],
+                1,
+            )
+
+    def test_explicit_subset_filters_modalities_preserves_groups_and_all_compatible_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            selection = self.write_selection(
+                root,
+                "biosample_accession\tgroup\n"
+                "SAMN100001\tPD\n"
+                "SAMEA200001\tControl\n",
+            )
+            output = root / "reports"
+            result = run_command(
+                [
+                    str(RESOLVER),
+                    "PRJNA123456",
+                    "--runinfo-file",
+                    str(FIXTURES / "runinfo_selection.csv"),
+                    "--selection-file",
+                    str(selection),
+                    "--group-column",
+                    "group",
+                    "--output-dir",
+                    str(output),
+                ]
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest = read_tsv(output / "sra_project_manifest.tsv")
+            self.assertEqual(
+                [row["run_accession"] for row in manifest],
+                ["SRR100001", "SRR100002", "SRR200001"],
+            )
+            self.assertEqual(
+                {row["sample_id"]: row["group"] for row in manifest},
+                {"SAMN100001": "PD", "SAMEA200001": "Control"},
+            )
+            self.assertNotIn("SRR400001", {row["run_accession"] for row in manifest})
+            exclusions = read_tsv(output / "sra_project_exclusions.tsv")
+            self.assertEqual([row["run_accession"] for row in exclusions], ["SRR100003"])
+            self.assertIn("library_strategy_not_wgs", exclusions[0]["exclusion_reason"])
+            sample = read_tsv(output / "sra_sample_manifest.tsv")[0]
+            self.assertEqual(sample["run_accessions"], "SRR100001;SRR100002")
+            requested = read_tsv(output / "sra_requested_samples.tsv")
+            self.assertEqual(
+                [row["biosample_accession"] for row in requested],
+                ["SAMN100001", "SAMEA200001"],
+            )
+
+    def test_wrong_project_missing_eligible_duplicate_and_empty_group_fail_closed(self) -> None:
+        cases = (
+            (
+                "wrong project",
+                "biosample_accession\nSAMN500001\n",
+                False,
+                "does not belong to BioProject",
+            ),
+            (
+                "no eligible run",
+                "biosample_accession\nSAMN600001\n",
+                False,
+                "has no eligible paired WGS METAGENOMIC run",
+            ),
+            (
+                "duplicate BioSample",
+                "biosample_accession\nSAMN100001\nSAMN100001\n",
+                False,
+                "duplicates BioSample SAMN100001",
+            ),
+            (
+                "empty group",
+                "biosample_accession\tcondition\nSAMN100001\t\n",
+                True,
+                "has an empty 'condition' group value",
+            ),
+        )
+        for label, content, grouped, expected in cases:
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                selection = self.write_selection(root, content)
+                arguments = [
+                    str(RESOLVER),
+                    "PRJNA123456",
+                    "--runinfo-file",
+                    str(FIXTURES / "runinfo_selection.csv"),
+                    "--selection-file",
+                    str(selection),
+                    "--output-dir",
+                    str(root / "reports"),
+                ]
+                if grouped:
+                    arguments.extend(["--group-column", "condition"])
+                result = run_command(arguments)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(expected, result.stderr)
+
+    def test_missing_requested_biosample_and_three_groups_are_handled_generically(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            missing = self.write_selection(
+                root,
+                "biosample_accession\nSAMN999999\n",
+            )
+            missing_result = run_command(
+                [
+                    str(RESOLVER),
+                    "PRJNA123456",
+                    "--runinfo-file",
+                    str(FIXTURES / "runinfo_selection.csv"),
+                    "--selection-file",
+                    str(missing),
+                    "--output-dir",
+                    str(root / "missing"),
+                ]
+            )
+            self.assertEqual(missing_result.returncode, 2)
+            self.assertIn("is absent from BioProject RunInfo metadata", missing_result.stderr)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            selection = self.write_selection(
+                root,
+                "biosample_accession\tcohort\n"
+                "SAMN400001\tTreatment_A\n"
+                "SAMEA200001\tTreatment_B\n"
+                "SAMD300001\tTreatment_C\n",
+            )
+            output = root / "reports"
+            result = run_command(
+                [
+                    str(RESOLVER),
+                    "PRJNA123456",
+                    "--runinfo-file",
+                    str(FIXTURES / "runinfo_selection.csv"),
+                    "--selection-file",
+                    str(selection),
+                    "--group-column",
+                    "cohort",
+                    "--output-dir",
+                    str(output),
+                ]
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            metadata = read_tsv(output / "sample_metadata.tsv")
+            self.assertEqual(
+                [row["group"] for row in metadata],
+                ["Treatment_A", "Treatment_B", "Treatment_C"],
+            )
+            self.assertEqual(
+                [row["biosample_accession"] for row in metadata],
+                ["SAMN400001", "SAMEA200001", "SAMD300001"],
+            )
+
+    def test_group_column_is_optional_and_selection_changes_invalidate_frozen_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            selection = self.write_selection(
+                root,
+                "biosample_accession\tignored_metadata\nSAMN100001\tanything\n",
+            )
+            output = root / "reports"
+            resolved = run_command(
+                [
+                    str(RESOLVER),
+                    "PRJNA123456",
+                    "--runinfo-file",
+                    str(FIXTURES / "runinfo_selection.csv"),
+                    "--selection-file",
+                    str(selection),
+                    "--output-dir",
+                    str(output),
+                ]
+            )
+            self.assertEqual(resolved.returncode, 0, resolved.stderr)
+            self.assertEqual(
+                {row["group"] for row in read_tsv(output / "sra_project_manifest.tsv")},
+                {""},
+            )
+            selection.write_text(
+                "biosample_accession\tignored_metadata\nSAMEA200001\tanything\n",
+                encoding="utf-8",
+            )
+            validation = run_command(
+                [
+                    str(RESOLVER),
+                    "--validate-existing",
+                    str(output),
+                    "--selection-file",
+                    str(selection),
+                ]
+            )
+            self.assertEqual(validation.returncode, 2)
+            self.assertIn("selection-file SHA-256 differs", validation.stderr)
 
     def test_write_invalid_and_succeed_and_validate_existing_modes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -148,6 +358,8 @@ class ResolverTests(unittest.TestCase):
                     str(FIXTURES / "runinfo_invalid.csv"),
                     "--output-dir",
                     str(output),
+                    "--selection-file",
+                    str(FIXTURES / "sra_samples_invalid.tsv"),
                     "--write-invalid-and-succeed",
                 ]
             )
@@ -487,9 +699,9 @@ class CheckpointTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"synthetic {label}\n", encoding="utf-8")
         artifacts["abundance"].write_text(
-            "sample\tmag_id\trelative_abundance_percent\tmean_coverage\t"
+            "sample\tgroup\tmag_id\trelative_abundance_percent\tmean_coverage\t"
             "covered_fraction\tgenome_length\n"
-            "SAMN000001\tMAG_1\t25.5\t3.25\t0.75\t2048\n",
+            "SAMN000001\tGroup_A\tMAG_1\t25.5\t3.25\t0.75\t2048\n",
             encoding="utf-8",
         )
         return results, artifacts
@@ -527,6 +739,7 @@ class CheckpointTests(unittest.TestCase):
             checkpoint_manifest = root / "checkpoints.tsv"
             pending = root / "pending.tsv"
             status = root / "status.json"
+            sample_metadata = root / "sample_metadata.tsv"
             reconciled = run_command(
                 [
                     str(CHECKPOINTS), "reconcile",
@@ -535,6 +748,7 @@ class CheckpointTests(unittest.TestCase):
                     "--output-manifest", str(checkpoint_manifest),
                     "--pending-output", str(pending),
                     "--status-output", str(status),
+                    "--metadata-output", str(sample_metadata),
                     "--require-complete",
                 ]
             )
@@ -542,6 +756,14 @@ class CheckpointTests(unittest.TestCase):
             self.assertEqual(json.loads(status.read_text())["complete_samples"], 1)
             checkpoint_rows = read_tsv(checkpoint_manifest)
             self.assertEqual(checkpoint_rows[0]["paired_fastq_records"], "2")
+            self.assertEqual(checkpoint_rows[0]["group"], "Group_A")
+            self.assertEqual(
+                checkpoint_rows[0]["selection_file_sha256"],
+                owner["selection_file_sha256"],
+            )
+            reconciled_metadata = read_tsv(sample_metadata)
+            self.assertEqual(reconciled_metadata[0]["sample_id"], "SAMN000001")
+            self.assertEqual(reconciled_metadata[0]["group"], "Group_A")
             validated_sample = run_command(
                 [
                     str(CHECKPOINTS), "validate-sample",
@@ -610,7 +832,7 @@ class CheckpointTests(unittest.TestCase):
                 }
 
             success_payload = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "status": "complete",
                 "project_accession": "PRJNA123456",
                 "checkpoint_manifest": description(checkpoint_manifest),
@@ -645,7 +867,7 @@ class CheckpointTests(unittest.TestCase):
                 (
                     "foreign sample",
                     abundance_header
-                    + "SAMN999999\tMAG_1\t25.5\t3.25\t0.75\t2048\n",
+                    + "SAMN999999\tGroup_A\tMAG_1\t25.5\t3.25\t0.75\t2048\n",
                     "row outside the checkpoint-sample",
                 ),
                 (
@@ -918,7 +1140,7 @@ class CheckpointTests(unittest.TestCase):
             cleanup_record.write_text(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "project_accession": "PRJNA123456",
                         "status": "in_progress",
                         "started_at_utc": "2026-01-01T00:00:00Z",
@@ -1019,7 +1241,7 @@ class CheckpointTests(unittest.TestCase):
             success.write_text(
                 json.dumps(
                     {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "status": "complete",
                         "project_accession": "PRJNA123456",
                         "checkpoint_manifest": description(checkpoint_manifest),
@@ -1126,6 +1348,22 @@ class CheckpointTests(unittest.TestCase):
             self.assertIn("different frozen manifest", changed.stderr)
             for path, original in protected_content.items():
                 self.assertEqual(path.read_bytes(), original)
+
+            changed_selection_manifest = root / "changed_selection_manifest.tsv"
+            changed_rows = read_tsv(manifest)
+            for changed_row in changed_rows:
+                changed_row["selection_file_sha256"] = "0" * 64
+            with changed_selection_manifest.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle, fieldnames=fields, delimiter="\t", lineterminator="\n"
+                )
+                writer.writeheader()
+                writer.writerows(changed_rows)
+            changed_selection = run_command(
+                [*base_arguments, "--run-manifest", str(changed_selection_manifest)]
+            )
+            self.assertEqual(changed_selection.returncode, 2)
+            self.assertIn("different frozen manifest", changed_selection.stderr)
 
             occupied = root / "occupied_checkpoint"
             occupied.mkdir()

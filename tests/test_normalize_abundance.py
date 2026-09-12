@@ -12,6 +12,7 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 NORMALIZER = REPOSITORY / "bin" / "normalize_coverm_abundance.py"
 OUTPUT_FIELDS = (
     "sample",
+    "group",
     "mag_id",
     "relative_abundance_percent",
     "mean_coverage",
@@ -35,17 +36,43 @@ def coverm_header(*samples: str) -> str:
 
 
 def run_normalizer(
-    root: Path, content: str
+    root: Path,
+    content: str,
+    groups: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     source = root / "coverm.tsv"
+    metadata = root / "sample_metadata.tsv"
     output = root / "abundance.long.tsv"
     source.write_text(content, encoding="utf-8")
+    sample_names: list[str] = []
+    for field in content.splitlines()[0].split("\t")[1:]:
+        for suffix in (
+            " Relative Abundance (%)",
+            " Mean",
+            " Covered Fraction",
+            " Length",
+        ):
+            if field.endswith(suffix):
+                sample = field[: -len(suffix)]
+                if sample and sample not in sample_names:
+                    sample_names.append(sample)
+                break
+    if not sample_names:
+        sample_names = ["metadata_only_sample"]
+    selected_groups = groups or {sample: "" for sample in sample_names}
+    metadata.write_text(
+        "sample_id\tgroup\n"
+        + "".join(f"{sample}\t{selected_groups.get(sample, '')}\n" for sample in sample_names),
+        encoding="utf-8",
+    )
     result = subprocess.run(
         [
             sys.executable,
             str(NORMALIZER),
             "--input",
             str(source),
+            "--sample-metadata",
+            str(metadata),
             "--output",
             str(output),
         ],
@@ -67,7 +94,11 @@ class NormalizeCovermAbundanceTests(unittest.TestCase):
                 + "unmapped\t70\t0\t0\t1\t60\t0\t0\t1\n"
                 + "MAG_1\t7.125\t8.5\t1\t4096\t9.25\t10.75\t0.125\t4096\n"
             )
-            result, output = run_normalizer(root, content)
+            result, output = run_normalizer(
+                root,
+                content,
+                {"sample_a": "Control", "sample_b": "PD"},
+            )
 
             self.assertEqual(result.returncode, 0, result.stderr)
             with output.open("r", encoding="utf-8", newline="") as handle:
@@ -80,6 +111,7 @@ class NormalizeCovermAbundanceTests(unittest.TestCase):
                 [
                     {
                         "sample": "sample_a",
+                        "group": "Control",
                         "mag_id": "MAG_2",
                         "relative_abundance_percent": "4.5",
                         "mean_coverage": "6.25",
@@ -88,6 +120,7 @@ class NormalizeCovermAbundanceTests(unittest.TestCase):
                     },
                     {
                         "sample": "sample_b",
+                        "group": "PD",
                         "mag_id": "MAG_2",
                         "relative_abundance_percent": "2.5",
                         "mean_coverage": "3.25",
@@ -96,6 +129,7 @@ class NormalizeCovermAbundanceTests(unittest.TestCase):
                     },
                     {
                         "sample": "sample_a",
+                        "group": "Control",
                         "mag_id": "MAG_1",
                         "relative_abundance_percent": "9.25",
                         "mean_coverage": "10.75",
@@ -104,6 +138,7 @@ class NormalizeCovermAbundanceTests(unittest.TestCase):
                     },
                     {
                         "sample": "sample_b",
+                        "group": "PD",
                         "mag_id": "MAG_1",
                         "relative_abundance_percent": "7.125",
                         "mean_coverage": "8.5",
@@ -113,6 +148,34 @@ class NormalizeCovermAbundanceTests(unittest.TestCase):
                 ],
             )
             self.assertNotIn("unmapped", {row["mag_id"] for row in rows})
+
+    def test_group_metadata_accepts_more_than_two_categories_without_changing_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            content = (
+                coverm_header("sample_a", "sample_b", "sample_c")
+                + "\nMAG_1\t1\t2\t0.5\t1000\t3\t4\t0.6\t1000\t5\t6\t0.7\t1000\n"
+            )
+            result, output = run_normalizer(
+                root,
+                content,
+                {"sample_a": "Treatment_A", "sample_b": "Treatment_B", "sample_c": "Treatment_C"},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with output.open(encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual(
+                {row["sample"]: row["group"] for row in rows},
+                {
+                    "sample_a": "Treatment_A",
+                    "sample_b": "Treatment_B",
+                    "sample_c": "Treatment_C",
+                },
+            )
+            self.assertEqual(
+                [row["relative_abundance_percent"] for row in rows],
+                ["1", "3", "5"],
+            )
 
     def test_unmapped_filter_is_case_sensitive(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

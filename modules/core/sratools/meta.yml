@@ -1,0 +1,45 @@
+name: sratools_acquire
+description: Acquire, validate, convert, compress, and deterministically merge all eligible SRA runs for one selected BioSample.
+keywords:
+  - sra
+  - fastq
+  - metagenomics
+tools:
+  - sra-tools:
+      description: NCBI utilities for SRA acquisition and validation
+      homepage: https://github.com/ncbi/sra-tools
+      licence: PUBLIC-DOMAIN
+  - pigz:
+      description: Parallel gzip compressor
+      homepage: https://zlib.net/pigz/
+      licence: ZLIB
+input:
+  - meta:
+      type: map
+      description: BioSample metadata including id and optional group
+  - run_manifest:
+      type: file
+      description: Frozen eligible run manifest
+  - acquisition_helper:
+      type: file
+      description: Storage-bounded acquisition controller
+  - scratch_root:
+      type: directory
+      description: Disposable acquisition workspace outside the repository
+  - cache_root:
+      type: directory
+      description: Disposable prefetch cache root
+  - temporary_root:
+      type: directory
+      description: Disposable fasterq-dump temporary root
+  - maximum_size:
+      type: value
+      description: Maximum object size accepted by prefetch, or u for unlimited
+output:
+  - reads:
+      type: file
+      description: One gzip-compressed paired FASTQ set for the BioSample
+      pattern: '*_R*.fastq.gz'
+  - versions:
+      type: file
+      description: Tool version records

@@ -11,17 +11,22 @@
       "required": ["input"],
       "properties": {
         "input": {"type": "string", "minLength": 1},
-        "sraProject": {"type": "null"}
+        "sraProject": {"type": "null"},
+        "sraSamples": {"type": "null"}
       }
     },
     {
       "title": "NCBI BioProject input",
-      "required": ["sraProject"],
+      "required": ["sraProject", "sraSamples"],
       "properties": {
         "input": {"type": "null"},
         "sraProject": {
           "type": "string",
           "pattern": "^PRJ(?:NA|EB|DB)[0-9]+$"
+        },
+        "sraSamples": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }
@@ -34,7 +39,16 @@
     "sraProject": {
       "type": ["string", "null"],
       "pattern": "^PRJ(?:NA|EB|DB)[0-9]+$",
-      "description": "NCBI BioProject accession used by the staged launcher (--sra-project). Direct auto-mode Nextflow execution intentionally redirects users to the launcher. Mutually exclusive with input."
+      "description": "NCBI BioProject accession used to resolve and validate the explicit sraSamples cohort. Required together with sraSamples and mutually exclusive with input."
+    },
+    "sraSamples": {
+      "type": ["string", "null"],
+      "description": "Explicit TSV of BioSample accessions selected by the user (--sra-samples). Required together with sraProject."
+    },
+    "groupColumn": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$",
+      "description": "Optional categorical metadata column propagated as group (--group-column)."
     },
     "sraManifest": {
       "type": ["string", "null"],
@@ -44,6 +58,10 @@
       "type": ["string", "null"],
       "description": "Internal validated manifest of biological-sample non-host read checkpoints."
     },
+    "sraSampleMetadata": {
+      "type": ["string", "null"],
+      "description": "Internal common sample-metadata TSV reconstructed during checkpoint reconciliation."
+    },
     "sraSampleId": {
       "type": ["string", "null"],
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
@@ -51,7 +69,7 @@
     },
     "sraCheckpointDir": {
       "type": ["string", "null"],
-      "description": "Dedicated external persistent directory for validated paired non-host SRA checkpoints. It must be empty on first use and is sealed to one BioProject and frozen-manifest hash. Required in SRA mode."
+      "description": "Dedicated external persistent directory for validated paired non-host SRA checkpoints. It must be empty on first use and is sealed to one BioProject, explicit-selection hash, and frozen-manifest hash. Required in SRA mode."
     },
     "sraScratchDir": {
       "type": ["string", "null"],

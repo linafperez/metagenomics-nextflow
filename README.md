@@ -2,7 +2,7 @@
 
 This repository implements a production-oriented shotgun metagenomics pipeline
 in Nextflow DSL2. It accepts either an existing paired-end FASTQ samplesheet or
-an NCBI SRA BioProject accession, removes human reads, reconstructs
+an NCBI SRA BioProject plus an explicit BioSample selection, removes human reads, reconstructs
 metagenome-assembled genomes (MAGs) independently with MEGAHIT and metaSPAdes,
 refines and combines both catalogs, and produces taxonomy, phylogenomics,
 functional annotation, abundance, and global processing reports.
@@ -14,6 +14,11 @@ catalog selection.
 ## Workflow
 
 ```text
+main.nf -> METAGENOMICS
+             |-- LOCAL_INPUT
+             `-- SRA_INPUT -> nested SRA lifecycle subworkflows
+                                `-- SRATOOLS_ACQUIRE (core module)
+
 local mode: paired-end FASTQ samplesheet -> raw pair ------------------|
                                                                       |
 BioProject mode: frozen manifest -> one biological sample             |
@@ -191,9 +196,9 @@ pipeline.
 
 ## Input modes
 
-Every production run must select exactly one input mode. `--input` and
-`--sra-project` are mutually exclusive; the launcher rejects a command that
-provides both or neither.
+Every production run must select exactly one input mode: `--input`, or the pair
+`--sra-project` + `--sra-samples`. The launcher rejects mixed or incomplete
+input modes.
 
 ### Existing paired FASTQ files
 
@@ -205,7 +210,25 @@ sample_A,/data/reads/sample_A_R1.fastq.gz,/data/reads/sample_A_R2.fastq.gz
 sample_B,reads/sample_B_R1.fq.gz,reads/sample_B_R2.fq.gz
 ```
 
-The header must be exactly `sample,fastq_1,fastq_2`. Sample identifiers must be
+The classic header remains valid. To preserve an arbitrary categorical value,
+add a column and identify it with `--group-column`:
+
+```csv
+sample,fastq_1,fastq_2,group
+sample_A,/data/reads/sample_A_R1.fastq.gz,/data/reads/sample_A_R2.fastq.gz,PD
+sample_B,reads/sample_B_R1.fq.gz,reads/sample_B_R2.fq.gz,Control
+```
+
+```bash
+./metagenomics_pipeline.sh --local --docker --run \
+    --input /data/project/samplesheet.csv \
+    --group-column group
+```
+
+The first three columns must be `sample,fastq_1,fastq_2`; additional metadata
+columns are allowed. When `--group-column` is supplied, that named column must
+exist and be non-empty for every sample. Without it, no grouping is applied
+and the original three-column format behaves as before. Sample identifiers must be
 unique and may contain letters, digits, `.`, `_`, and `-`, but must begin with a
 letter or digit. Both read files are required. Supported extensions are
 `.fastq`, `.fastq.gz`, `.fq`, and `.fq.gz`. Relative paths are resolved from
@@ -220,21 +243,61 @@ table and verifies every paired FASTQ path.
 
 ### NCBI SRA BioProject
 
-Use `--sra-project` with a `PRJNA`, `PRJEB`, or `PRJDB` accession. Discovery
-queries NCBI RunInfo metadata and freezes the returned cohort before any read
-acquisition. A valid cohort must contain only public runs with a download path,
-`PAIRED` layout, `WGS` strategy, `METAGENOMIC` source, and a platform in the
-configured allowlist (`ILLUMINA,BGISEQ` by default). Missing, duplicate,
-restricted, inconsistent, or incompatible records cause a fail-closed
-validation error; runs are not silently discarded to manufacture a compatible
-cohort.
+Use `--sra-project` with a `PRJNA`, `PRJEB`, or `PRJDB` accession and always
+provide `--sra-samples`, a tab-separated explicit BioSample selection:
 
-BioSample accession is the primary biological-sample identity. All eligible
-runs with the same BioSample are grouped and merged in deterministic accession
-order. If RunInfo has no valid BioSample, the resolver uses the experiment
-accession and, only if that is also unavailable, the run accession; these
-fallbacks are explicit in `identity_source` and `metadata_warnings` rather than
-being presented as BioSample identity.
+```tsv
+biosample_accession	group
+SAMNXXXXXXXX	PD
+SAMEAYYYYYYYY	Control
+SAMDZZZZZZZZ	PD
+```
+
+```bash
+./metagenomics_pipeline.sh --hpc --apptainer --run \
+    --sra-project PRJNAxxxxxx \
+    --sra-samples /shared/project/samples.tsv \
+    --group-column group \
+    --sra-checkpoint-dir /shared/checkpoints/project \
+    --sra-scratch-dir /scratch/project
+```
+
+The identifier must be a valid `SAMN`, `SAMEA`, or `SAMD` accession. The
+BioProject is the membership boundary; it no longer means "process the whole
+project." Discovery queries all lightweight RunInfo metadata only to validate
+membership and resolve the requested samples. A BioSample absent from the TSV
+cannot enter the eligible manifest and is never acquired.
+
+Within each requested BioSample, only public runs with a download path,
+`PAIRED` layout, `WGS` strategy, `METAGENOMIC` source, and a platform in the
+configured allowlist (`ILLUMINA,BGISEQ` by default) are eligible. Other
+modalities, such as paired `RNA-Seq`/`METATRANSCRIPTOMIC`, are recorded in the
+exclusion audit and not downloaded. Every requested BioSample must belong to
+the BioProject and have at least one eligible run. Missing BioSamples,
+duplicates, no eligible runs, and contradictory metadata fail closed. All
+eligible runs for one BioSample are merged in deterministic run-accession
+order; no experiment/run identity fallback is used.
+
+`--group-column` is optional in both input modes. Values are opaque categorical
+labels: any number and spelling of categories is supported, and the pipeline
+does not interpret their biological meaning. When enabled, group is preserved
+in sample metadata, SRA checkpoints, reconstructed `meta`, and the final long
+MAG-abundance table. The pipeline only establishes MAG abundance ↔ sample ↔
+group; differential association still requires a separate statistical method.
+
+The static [PRJNA782492 example](assets/raw/PRJNA782492_metagenomic_samples.tsv)
+was prepared from the [official NCBI BioProject](https://www.ncbi.nlm.nih.gov/bioproject/782492)
+and its [SRA RunInfo metadata](https://www.ncbi.nlm.nih.gov/sra/docs/sradownload/).
+It is a binary PD-versus-control selection containing 95 BioSamples: 46 `PD`
+and 49 healthy controls labelled `CT`. The 27 iRBD BioSamples in the BioProject
+are deliberately excluded rather than being treated as controls. Assignment is
+based on the official BioSample `host_disease` metadata and the study's
+[published final metagenomic cohort](https://pmc.ncbi.nlm.nih.gov/articles/PMC12502400/),
+which reports exactly 46 PD, 27 iRBD, and 49 healthy-control samples. All 95
+selected BioSamples have public, downloadable `PAIRED`, `WGS`, `METAGENOMIC`,
+`ILLUMINA` RunInfo records. This remains an ordinary user-prepared input file,
+not hardcoded pipeline logic or an automatic dataset download. Run it with
+`--group-column group`.
 
 Discovery writes the raw metadata, deterministic run and sample manifests,
 exclusion table, and a summary with file sizes and SHA-256 hashes under
@@ -245,13 +308,17 @@ sra_project_runinfo.csv
 sra_project_manifest.tsv
 sra_sample_manifest.tsv
 sra_project_exclusions.tsv
+sra_requested_samples.tsv
+sample_metadata.tsv
 sra_project_summary.json
 ```
 
-Every later stage validates those frozen files and their hashes. A restart with
-the same results directory reuses the cohort without re-querying NCBI. Use a
-different results directory when a deliberate fresh metadata resolution is
-required.
+Every later stage validates those frozen files, their hashes, the current
+selection-file SHA-256, and the configured group column. A changed BioSample
+selection or changed group assignment cannot reuse an old checkpoint cohort.
+A restart with the same selection and results directory reuses the cohort
+without re-querying NCBI. Use a different results and checkpoint directory for
+a deliberate new cohort.
 
 ### Sequential SRA lifecycle and recovery
 
@@ -278,7 +345,7 @@ production command is the single launcher invocation shown below.
 5. Atomically copy the non-host pair and small reports to the external
    checkpoint root. A completion record is committed only after a full gzip and
    paired-FASTQ scan, mate-name/count checks, sizes, SHA-256 hashes, and binding
-   to the frozen-manifest hash all succeed. After the sample invocation returns,
+   to both the selection-file and frozen-manifest hashes all succeed. After the sample invocation returns,
    the launcher independently revalidates that record, both mates, every retained
    report, and the frozen-manifest binding. Only then is that sample's disposable
    Nextflow work directory eligible for removal. The launcher requests a storage
@@ -358,7 +425,8 @@ operator inspection.
 
 SRA checkpoint, scratch, and results roots must be distinct. Each checkpoint
 root must be a dedicated empty directory on first use; it is atomically sealed
-to one BioProject and one exact frozen-manifest SHA-256 before any sample copy.
+to one BioProject, one selection-file SHA-256, and one exact frozen-manifest
+SHA-256 before any sample copy.
 Reusing it for another project or cohort is rejected before existing data can
 be overwritten. Checkpoint and
 scratch roots are required to be outside the Git repository; scratch is
@@ -598,6 +666,7 @@ automatically serializes queued tasks to reduce overlapping disk demand:
     --database-config /shared/db/metagenomics_databases.config \
     --phylophlan_container registry.example.org/phylophlan-iqtree:3.1.1-3.0.1 \
     --sra-project PRJNA123456 \
+    --sra-samples /shared/project/sra_samples.tsv \
     --sra-checkpoint-dir /shared/checkpoints/PRJNA123456 \
     --sra-scratch-dir /scratch/project/PRJNA123456 \
     --outdir /shared/project/PRJNA123456/results \
@@ -729,8 +798,10 @@ nextflow run . -profile hpc,apptainer \
 | --- | ---: | --- |
 | `--outdir` | `results` | User-facing output root |
 | `--work-dir` | `work` locally; `<sra-scratch-dir>/nextflow-work` for SRA | Nextflow work root |
-| `--input` | unset | Existing FASTQ samplesheet; mutually exclusive with `--sra-project` |
-| `--sra-project` | unset | BioProject accession; mutually exclusive with `--input` |
+| `--input` | unset | Existing FASTQ samplesheet; mutually exclusive with SRA input |
+| `--sra-project` | unset | BioProject membership boundary; requires `--sra-samples` |
+| `--sra-samples` | required with `--sra-project` | Explicit TSV of selected BioSample accessions |
+| `--group-column` | unset | Optional input column whose categorical value is propagated as `group` |
 | `--sra-checkpoint-dir` | required in SRA mode | External durable non-host read checkpoint root |
 | `--sra-scratch-dir` | required in SRA mode | External disposable acquisition and work root |
 | `--sra-cache-dir` | `<sra-scratch-dir>/sra-cache` | SRA `prefetch` cache |
@@ -925,7 +996,10 @@ results/
     `-- sra/                         # BioProject mode only
         |-- sra_project_{runinfo.csv,manifest.tsv,exclusions.tsv,summary.json}
         |-- sra_sample_manifest.tsv
+        |-- sra_requested_samples.tsv
+        |-- sample_metadata.tsv
         |-- sra_{checkpoint_manifest.tsv,pending_samples.tsv,checkpoint_status.json}
+        |-- sra_checkpoint_sample_metadata.tsv
         `-- sra_global_success.json       # full scientific-output hash inventory
 ```
 

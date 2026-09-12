@@ -38,13 +38,17 @@ class StaticProductionContractTests(unittest.TestCase):
         self.assertEqual(len(schema["oneOf"]), 2)
         self.assertEqual(schema["oneOf"][0]["required"], ["input"])
         self.assertEqual(schema["oneOf"][0]["properties"]["sraProject"]["type"], "null")
-        self.assertEqual(schema["oneOf"][1]["required"], ["sraProject"])
+        self.assertEqual(schema["oneOf"][1]["required"], ["sraProject", "sraSamples"])
         self.assertEqual(schema["oneOf"][1]["properties"]["input"]["type"], "null")
         launcher = self.read("metagenomics_pipeline.sh")
-        self.assertIn("--input and --sra-project are mutually exclusive", launcher)
+        self.assertIn("--input and --sra-project/--sra-samples are mutually exclusive", launcher)
         main = self.read("main.nf")
+        self.assertEqual(main.count("include {"), 1)
+        self.assertIn("include { METAGENOMICS }", main)
+        self.assertNotIn("SRA_", main)
+        dispatcher = self.read("workflows/metagenomics.nf")
         for stage in ("local", "sra-discovery", "sra-checkpoints", "sra-preprocess", "sra-global"):
-            self.assertIn(stage, main)
+            self.assertIn(stage, dispatcher)
 
     def test_schema_covers_every_declared_parameter(self) -> None:
         schema = json.loads(self.read("nextflow_schema.json"))
@@ -118,7 +122,7 @@ class StaticProductionContractTests(unittest.TestCase):
         for process in (
             "RESOLVE_SRA_PROJECT",
             "VALIDATE_SRA_PROJECT",
-            "SRA_ACQUIRE",
+            "SRATOOLS_ACQUIRE",
             "PERSIST_SRA_CHECKPOINT",
             "CHECK_SRA_CHECKPOINTS",
             "FINALIZE_SRA_GLOBAL_RUN",
@@ -139,11 +143,11 @@ class StaticProductionContractTests(unittest.TestCase):
             "completion_record_missing",
         ):
             self.assertIn(evidence, checkpoint)
-        self.assertIn("--force", self.read("modules/local/sra_preprocessing/main.nf"))
+        self.assertIn("--force", self.read("modules/core/sratools/main.nf"))
 
     def test_both_input_modes_share_the_complete_global_scientific_workflow(self) -> None:
-        local = self.read("workflows/metagenomics.nf")
-        sra = self.read("workflows/sra_global.nf")
+        local = self.read("subworkflows/local/local_input/main.nf")
+        sra = self.read("subworkflows/local/sra_global/main.nf")
         for wrapper in (local, sra):
             self.assertIn("include { METAGENOMICS_GLOBAL }", wrapper)
             self.assertIn("METAGENOMICS_GLOBAL(", wrapper)

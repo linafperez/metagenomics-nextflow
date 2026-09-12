@@ -6,9 +6,9 @@ copy-pasteable execution commands are in the repository [README](../README.md).
 
 ## Design principles
 
-- The launcher accepts exactly one input mode: a local paired-read samplesheet
-  or a public SRA BioProject. Both modes converge on the same complete global
-  scientific strategy.
+- The launcher accepts exactly one input mode: a local paired-read samplesheet,
+  or a public SRA BioProject plus an explicit BioSample-selection TSV. Both
+  modes converge on the same complete global scientific strategy.
 - Scientific independence is preserved in the DAG; executor configuration
   controls physical concurrency.
 - SRA cohort discovery is frozen before acquisition. A biological sample is
@@ -31,13 +31,16 @@ copy-pasteable execution commands are in the repository [README](../README.md).
 
 ```text
 metagenomics_pipeline.sh         production launcher and staged-run controller
-main.nf                          internal execution-stage dispatcher
-workflows/metagenomics.nf        local-samplesheet entry workflow
-workflows/sra_*.nf               SRA discovery, reconciliation, sample, global
+main.nf                          minimal single-workflow application entry
+workflows/metagenomics.nf        only public workflow and internal dispatcher
+subworkflows/local/local_input/  local samplesheet, QC, and common handoff
+subworkflows/local/sra_input/    private staged SRA subworkflow dispatcher
+subworkflows/local/sra_*/        SRA discovery, reconciliation, sample, global
 subworkflows/local/metagenomics_global/
                                  shared post-filtering scientific workflow
 subworkflows/local/             scientific and reusable orchestration
 modules/core/                   one reusable wrapper per bioinformatics tool
+modules/core/sratools/           SRA Toolkit acquisition module
 modules/local/                  pipeline-specific transformation processes
 bin/                            transparent Python and Bash helpers
 conf/                           configuration layers and orthogonal profiles
@@ -46,11 +49,13 @@ assets/                         samplesheet, MultiQC, and PhyloPhlAn templates
 docs/                           architecture documentation
 ```
 
-`main.nf` dispatches on the internal `params.executionStage` value. `auto`
-accepts only a local `--input`; BioProject execution is deliberately rejected
-there because it requires lifecycle control across several Nextflow sessions.
-The launcher alone selects the internal stages `local`, `sra-discovery`,
-`sra-checkpoints`, `sra-preprocess`, and `sra-global`.
+`main.nf` imports and invokes only `METAGENOMICS`. That workflow validates the
+two public input modes and dispatches to `LOCAL_INPUT` or the nested `SRA_INPUT`
+hierarchy. `auto` accepts local `--input`; SRA production in `auto` is
+deliberately redirected to the launcher because lifecycle control spans several
+Nextflow sessions. The launcher alone selects the internal stages `local`,
+`sra-discovery`, `sra-checkpoints`, `sra-preprocess`, and `sra-global`, but each
+session still enters through `main.nf -> METAGENOMICS`.
 Its host-side resolver, checkpoint, telemetry, and accounting helpers require
 Python 3.10 or newer; this prerequisite is checked before any production stage.
 
@@ -59,26 +64,28 @@ Python 3.10 or newer; this prerequisite is checked before any production stage.
 The two mutually exclusive production paths are:
 
 ```text
-local samplesheet
+main.nf
   -> METAGENOMICS
-     -> QUALITY_CONTROL_AND_FILTERING
-     -> METAGENOMICS_GLOBAL
+     |-- LOCAL_INPUT
+     |    -> QUALITY_CONTROL_AND_FILTERING
+     |    -> METAGENOMICS_GLOBAL
+     `-- SRA_INPUT
+          |-- SRA_PROJECT_DISCOVERY                (once; freeze selection)
+          |-- SRA_CHECKPOINT_RECONCILIATION        (find pending BioSamples)
+          |-- SRA_SAMPLE_PREPROCESSING             (one BioSample per session)
+          |    -> SRATOOLS_ACQUIRE                 (core SRA Toolkit module)
+          |    -> QUALITY_CONTROL_AND_FILTERING
+          |    -> PERSIST_SRA_CHECKPOINT
+          |-- SRA_CHECKPOINT_RECONCILIATION --require-complete
+          `-- SRA_GLOBAL
+               -> METAGENOMICS_GLOBAL
+               -> FINALIZE_SRA_GLOBAL_RUN          (baseline success marker)
 
-SRA BioProject
-  -> SRA_PROJECT_DISCOVERY                         (once; freeze cohort)
-  -> SRA_CHECKPOINT_RECONCILIATION                (find pending samples)
-  -> SRA_SAMPLE_PREPROCESSING, one sample at a time
-     -> SRA_ACQUIRE -> QUALITY_CONTROL_AND_FILTERING
-     -> PERSIST_SRA_CHECKPOINT
-  -> SRA_CHECKPOINT_RECONCILIATION --require-complete
-  -> SRA_GLOBAL
-     -> METAGENOMICS_GLOBAL
-     -> FINALIZE_SRA_GLOBAL_RUN                    (baseline success marker)
-  -> seal the complete published scientific result inventory
-  -> validated checkpoint-read cleanup, unless retention was requested
+launcher -> seal complete scientific inventory -> validated checkpoint-read
+cleanup, unless retention was requested
 ```
 
-`workflows/metagenomics.nf` performs these local-input duties:
+`subworkflows/local/local_input/main.nf` performs these local-input duties:
 
 1. validates required production input, database, and license parameters plus
    numeric ranges and ANI relationships;
@@ -103,11 +110,10 @@ defines types, enumerations, defaults, and numeric ranges. Runtime validation in
 `derep_ani > species_ani`, so direct Nextflow execution does not depend on an
 editor or external schema client for critical validation.
 
-The shared scientific hierarchy is:
+The shared scientific hierarchy below each input adapter is:
 
 ```text
-METAGENOMICS
-|-- QUALITY_CONTROL_AND_FILTERING
+LOCAL_INPUT or SRA_GLOBAL
 `-- METAGENOMICS_GLOBAL
     |-- MAG_CONSTRUCTION
     |   |-- MEGAHIT_BRANCH
@@ -143,37 +149,49 @@ paired reads use:
 ```text
 tuple(meta, reads)
 
-meta  = [id: sample_id, single_end: false]
+meta  = [id: sample_id, single_end: false, biosample_accession: ..., group: ...]
 reads = [fastq_1, fastq_2]
 ```
 
-Read-level metadata contains only sample identity and pairing state. Assembly,
-binner, and MAG fields are added only when they become relevant.
+`group` is an opaque categorical value and may be empty when grouping was not
+requested. SRA metadata additionally carries selection hash, sample order, and
+run accessions. Assembly, binner, and MAG fields are added only when relevant.
 
-The samplesheet helper validates the exact header, unique safe sample IDs,
-paired files, supported FASTQ extensions, distinct mates, and file existence.
-It resolves relative paths against the samplesheet directory and publishes the
-normalized CSV under `pipeline_info/`.
+The samplesheet helper requires the first three columns
+`sample,fastq_1,fastq_2`, validates unique safe sample IDs, paired files,
+supported FASTQ extensions, distinct mates, and file existence. Optional
+columns are accepted. If `groupColumn` is configured, that column must exist
+and be non-empty on every row. It resolves relative paths against the
+samplesheet directory and publishes the normalized CSV and `sample_metadata.tsv`
+under `pipeline_info/`.
 
 ### Frozen SRA cohort contract
 
-`SRA_PROJECT_DISCOVERY` emits and publishes a run manifest, biological-sample
-manifest, exclusion audit, JSON summary, raw RunInfo CSV, and validation
-sentinel. Eligible runs must belong to the requested BioProject, be public,
+`SRA_PROJECT_DISCOVERY` requires both a BioProject and a TSV whose primary key
+is a `SAMN`, `SAMEA`, or `SAMD` BioSample accession. It emits and publishes the
+requested-sample manifest, resolved run manifest, biological-sample manifest,
+common sample metadata, exclusion audit, JSON summary, raw RunInfo CSV, and
+validation sentinel. Only explicitly requested BioSamples are considered.
+Eligible runs must belong to the requested BioProject, be public,
 paired, `WGS`, `METAGENOMIC`, and on the configured short-read platform
-allowlist. The run accession must be valid; spot, paired-spot, and base counts
-must be valid and positive when supplied, and paired spots must equal total
-spots when both are present. Ineligible rows remain visible in the exclusion
-audit rather than silently entering the cohort.
+allowlist. The run accession must be valid; total-spot and base counts must be
+valid and positive when supplied, while paired-spot counts must be numeric,
+non-negative, and no greater than total spots. A lower paired-spot count is an
+auditable RunInfo warning rather than an exclusion because it is common even
+on records declared `PAIRED`; the materialized FASTQ mates are still parsed in
+full and must have equal non-zero counts and matching names before checkpointing.
+Ineligible rows remain visible in the exclusion audit rather than silently
+entering the cohort.
 
-The biological identity key is the valid BioSample accession when present,
-then the Experiment accession, and finally the Run accession as an explicitly
-warned fallback. All eligible runs with the same key form one biological
-sample. The frozen run manifest is ordered by integer `sample_order`, then
-integer `run_order`; this order and its SHA-256 bind every later checkpoint.
-When frozen state already exists, the launcher validates and reuses it instead
-of querying NCBI again, and rejects a requested project that differs from the
-frozen project.
+The biological identity key is always the selected valid BioSample accession;
+there is no experiment/run fallback. All eligible runs for that accession form
+one biological sample, while incompatible modalities remain in the exclusion
+audit. Every requested BioSample must be present, belong to the BioProject, and
+have at least one eligible run. The frozen run manifest is ordered by selection
+order then run accession. The raw selection SHA-256 and resolved manifest
+SHA-256 bind every checkpoint, so selection or group-assignment changes cannot
+reuse old state. Existing state is also compared with the current selection
+file and group-column setting before reuse.
 
 ### Durable SRA checkpoint contract
 
@@ -194,7 +212,8 @@ The JSON record is the commit marker, not directory or FASTQ existence. It is
 atomically written only after both gzip FASTQs have been copied, fully parsed,
 shown to have equal non-zero paired record counts and matching read names, and
 hashed. It records the project, sample order and identity provenance,
-BioSample, experiment and run accessions, frozen-manifest SHA-256, read paths,
+BioSample, group, experiment and run accessions, selection-file SHA-256,
+frozen-manifest SHA-256, read paths,
 sizes and SHA-256 values, paired record count, durable report paths,
 completion time, schema version, and `status=complete`.
 
@@ -205,13 +224,15 @@ hash, count, report path, and frozen-manifest association. It emits:
 sra_checkpoint_manifest.tsv  validated completed rows in frozen sample order
 sra_pending_samples.tsv      sample_order, sample_id, reason
 sra_checkpoint_status.json   expected/complete/pending counts and completion
+sra_checkpoint_sample_metadata.tsv  sample/BioSample/group/run mapping
 ```
 
 The checkpoint manifest carries these exact columns:
 
 ```text
 schema_version, project_accession, sample_order, sample_id, identity_source,
-biosample_accession, experiment_accessions, run_count, run_accessions,
+biosample_accession, group, selection_file_sha256, experiment_accessions,
+run_count, run_accessions,
 run_manifest_sha256, read_1, read_1_bytes, read_1_sha256, read_2,
 read_2_bytes, read_2_sha256, paired_fastq_records, reports_json,
 completed_at_utc, status
@@ -226,9 +247,11 @@ meta = [
     id: sample_id,
     single_end: false,
     biosample_accession: biosample_accession,
+    group: group,
     identity_source: identity_source,
     sample_order: sample_order as Integer,
-    run_accessions: run_accessions split on ';'
+    run_accessions: run_accessions split on ';',
+    selection_file_sha256: selection_file_sha256
 ]
 reads = [read_1, read_2]
 ```
@@ -355,7 +378,7 @@ the external checkpoint root is mutable state not represented in a Nextflow
 skipping a required repair while leaving upstream scientific caching intact.
 Before reconciliation or persistence, an exclusive
 `sra_checkpoint_owner.json` claims an otherwise empty checkpoint root for one
-BioProject and one frozen-manifest SHA-256. Every later reconciliation,
+BioProject, one selection-file SHA-256, and one frozen-manifest SHA-256. Every later reconciliation,
 single-sample validation, persistence, and cleanup validates that ownership;
 cross-project or changed-cohort reuse fails before any managed file is copied.
 The frozen state additionally binds the normalized platform allowlist; a
@@ -603,7 +626,7 @@ The native wide table is retained. `NORMALIZE_ABUNDANCE` validates every sample
 metric group and creates a long table with:
 
 ```text
-sample\tmag_id\trelative_abundance_percent\tmean_coverage\tcovered_fraction\tgenome_length
+sample\tgroup\tmag_id\trelative_abundance_percent\tmean_coverage\tcovered_fraction\tgenome_length
 ```
 
 CoverM may emit a pseudo-genome row named `unmapped` for reads that did not map
@@ -612,8 +635,10 @@ not a MAG; it does not renormalize or otherwise alter CoverM's values for real
 MAGs.
 
 Before the scientific output inventory can be sealed, the checkpoint controller
-revalidates this table semantically. Its header must exactly match the six
-columns above in that order. Every metric must be finite and numeric;
+revalidates this table semantically. Its header must exactly match the seven
+columns above in that order. `group` must exactly match common/checkpoint sample
+metadata (an empty string is valid when grouping is disabled). Every metric
+must be finite and numeric;
 `relative_abundance_percent` must be in `[0, 100]`, `mean_coverage` must be
 non-negative, `covered_fraction` must be in `[0, 1]`, and `genome_length` must
 be positive. Sample IDs come from the complete checkpoint manifest and MAG IDs
@@ -823,7 +848,8 @@ default publication mode is `copy`. Large optional products are controlled by:
 All processes still exchange required intermediates in Nextflow work
 directories even when an optional user-facing publication is disabled.
 
-SRA discovery/reconciliation state and the global-success marker are published
+SRA discovery/reconciliation state, both common sample-metadata tables, the
+requested-BioSample audit, and the global-success marker are published
 under `pipeline_info/sra/`. Per-sample small checkpoint process outputs are
 also copied to the invocation telemetry directory, while the durable large
 host-removed reads and their completion records are written directly beneath

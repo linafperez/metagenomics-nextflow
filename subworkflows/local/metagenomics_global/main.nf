@@ -13,6 +13,7 @@ workflow METAGENOMICS_GLOBAL {
     ch_filtered_reads
     ch_preprocessing_reports
     ch_preprocessing_versions
+    ch_sample_metadata
 
     main:
     def required_parameters = [
@@ -114,7 +115,8 @@ workflow METAGENOMICS_GLOBAL {
 
     MAG_ABUNDANCE_ESTIMATION(
         MAG_CONSTRUCTION.out.final_mags,
-        ch_filtered_reads
+        ch_filtered_reads,
+        ch_sample_metadata
     )
 
     ch_global_reports = ch_preprocessing_reports

@@ -23,6 +23,8 @@ storage_constrained=false
 enable_gpu=false
 input_path=""
 sra_project=""
+sra_samples=""
+group_column=""
 sra_checkpoint_dir=""
 sra_scratch_root=""
 sra_cache_dir=""
@@ -62,7 +64,8 @@ usage() {
 Usage:
   ./metagenomics_pipeline.sh --<environment> --<runtime> --run --input FILE [options]
   ./metagenomics_pipeline.sh --<environment> --<runtime> --run \
-      --sra-project PRJNA... --sra-checkpoint-dir PATH --sra-scratch-dir PATH [options]
+      --sra-project PRJNA... --sra-samples FILE \
+      --sra-checkpoint-dir PATH --sra-scratch-dir PATH [options]
   ./metagenomics_pipeline.sh --<environment> --prepare-databases --db-root PATH [options]
 
 Environment (select one):
@@ -78,7 +81,9 @@ Mode (select one):
 
 Input (select exactly one for --run):
   --input FILE             Existing paired-FASTQ samplesheet.
-  --sra-project ACCESSION  Frozen BioProject mode (PRJNA/PRJEB/PRJDB).
+  --sra-project ACCESSION  BioProject boundary (PRJNA/PRJEB/PRJDB).
+  --sra-samples FILE       Explicit TSV of BioSample accessions to process.
+  --group-column NAME      Optional categorical metadata column in the input table.
 
 SRA lifecycle options:
   --sra-checkpoint-dir PATH  Required durable non-host-read checkpoint root.
@@ -569,7 +574,10 @@ validate_sample_checkpoint() {
 
 validate_frozen_sra_state() {
     local frozen_state frozen_project frozen_platforms requested_platforms
-    python3 "${SRA_RESOLVER}" --validate-existing "${state_dir}"
+    declare -a validation_command=(python3 "${SRA_RESOLVER}" \
+        --validate-existing "${state_dir}" --selection-file "${sra_samples}")
+    [[ -n "${group_column}" ]] && validation_command+=(--group-column "${group_column}")
+    "${validation_command[@]}"
     frozen_state="$(python3 - "${state_dir}/sra_project_summary.json" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1], encoding='utf-8'))
@@ -606,6 +614,10 @@ while (($#)); do
         --input=*) input_path="${1#*=}"; [[ -n "${input_path}" ]] || die "--input requires a value"; forwarded_args+=("$1") ;;
         --sra-project) require_value "$1" "${2:-}"; sra_project="$2"; shift ;;
         --sra-project=*) sra_project="${1#*=}" ;;
+        --sra-samples) require_value "$1" "${2:-}"; sra_samples="$2"; shift ;;
+        --sra-samples=*) sra_samples="${1#*=}" ;;
+        --group-column) require_value "$1" "${2:-}"; group_column="$2"; shift ;;
+        --group-column=*) group_column="${1#*=}" ;;
         --sra-checkpoint-dir) require_value "$1" "${2:-}"; sra_checkpoint_dir="$2"; shift ;;
         --sra-checkpoint-dir=*) sra_checkpoint_dir="${1#*=}" ;;
         --sra-scratch-dir) require_value "$1" "${2:-}"; sra_scratch_root="$2"; shift ;;
@@ -650,7 +662,7 @@ while (($#)); do
         -profile|-profile=*|-work-dir|-work-dir=*|-w|-w=*|-name|-name=*|-log|-log=*|-resume|-resume=*|-params-file|-params-file=*|-c|-c=*|-config|-config=*)
             die "${1%%=*} is reserved by the staged launcher"
             ;;
-        --executionStage|--executionStage=*|--telemetryDir|--telemetryDir=*|--sraStateDir|--sraStateDir=*|--sraManifest|--sraManifest=*|--sraSampleId|--sraSampleId=*|--sraCheckpointManifest|--sraCheckpointManifest=*|--sraRequireComplete|--sraRequireComplete=*|--sraContainerOptions|--sraContainerOptions=*|--sraProject|--sraProject=*|--sraCheckpointDir|--sraCheckpointDir=*|--sraScratchDir|--sraScratchDir=*|--sraCacheDir|--sraCacheDir=*|--sraTempDir|--sraTempDir=*|--enableGpu|--enableGpu=*|--gpuAccelerators|--gpuAccelerators=*|--gpuTelemetryInterval|--gpuTelemetryInterval=*|--gpuContainerOptions|--gpuContainerOptions=*|--slurmGpuGres|--slurmGpuGres=*)
+        --executionStage|--executionStage=*|--telemetryDir|--telemetryDir=*|--sraStateDir|--sraStateDir=*|--sraManifest|--sraManifest=*|--sraSampleId|--sraSampleId=*|--sraCheckpointManifest|--sraCheckpointManifest=*|--sraSampleMetadata|--sraSampleMetadata=*|--sraRequireComplete|--sraRequireComplete=*|--sraContainerOptions|--sraContainerOptions=*|--sraProject|--sraProject=*|--sraSamples|--sraSamples=*|--groupColumn|--groupColumn=*|--sraCheckpointDir|--sraCheckpointDir=*|--sraScratchDir|--sraScratchDir=*|--sraCacheDir|--sraCacheDir=*|--sraTempDir|--sraTempDir=*|--enableGpu|--enableGpu=*|--gpuAccelerators|--gpuAccelerators=*|--gpuTelemetryInterval|--gpuTelemetryInterval=*|--gpuContainerOptions|--gpuContainerOptions=*|--slurmGpuGres|--slurmGpuGres=*)
             die "${1%%=*} is an internal pipeline parameter managed by the launcher"
             ;;
         *) forwarded_args+=("$1") ;;
@@ -678,8 +690,14 @@ fi
 
 [[ -n "${runtime}" ]] || die "select one software runtime"
 [[ -z "${db_root}" ]] || die "--db-root only applies to --prepare-databases"
-[[ -n "${input_path}" || -n "${sra_project}" ]] || die "--run requires exactly one of --input or --sra-project"
-[[ -z "${input_path}" || -z "${sra_project}" ]] || die "--input and --sra-project are mutually exclusive"
+[[ -n "${input_path}" || -n "${sra_project}" || -n "${sra_samples}" ]] \
+    || die "--run requires --input or --sra-project plus --sra-samples"
+[[ -z "${input_path}" || ( -z "${sra_project}" && -z "${sra_samples}" ) ]] \
+    || die "--input and --sra-project/--sra-samples are mutually exclusive"
+[[ -z "${sra_project}" && -z "${sra_samples}" || -n "${sra_project}" && -n "${sra_samples}" ]] \
+    || die "SRA mode requires both --sra-project and --sra-samples"
+[[ -z "${group_column}" || "${group_column}" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]] \
+    || die "--group-column contains unsupported characters"
 [[ "${environment}" != hpc || "${runtime}" != docker ]] || die "Docker is not supported by the SLURM launcher"
 [[ -z "${database_config}" || -r "${database_config}" ]] || die "database configuration is not readable: ${database_config}"
 [[ "${gpu_accelerators}" =~ ^[1-9][0-9]*$ ]] || die "--gpu-accelerators must be a positive integer"
@@ -740,6 +758,7 @@ fi
 declare -a common_nextflow_args=("${forwarded_args[@]}")
 common_nextflow_args+=(--enableGpu "${enable_gpu}" --gpuAccelerators "${gpu_accelerators}" \
     --gpuTelemetryInterval "${gpu_telemetry_interval}")
+[[ -n "${group_column}" ]] && common_nextflow_args+=(--groupColumn "${group_column}")
 [[ -n "${slurm_gpu_gres}" ]] && common_nextflow_args+=(--slurmGpuGres "${slurm_gpu_gres}")
 if [[ "${enable_gpu}" == true && "${runtime}" == docker ]]; then
     common_nextflow_args+=(--gpuContainerOptions '--gpus 1')
@@ -761,6 +780,10 @@ if [[ -n "${input_path}" ]]; then
 fi
 
 [[ "${sra_project}" =~ ^PRJ(NA|EB|DB)[0-9]+$ ]] || die "invalid BioProject accession: ${sra_project}"
+[[ -r "${sra_samples}" && -f "${sra_samples}" ]] \
+    || die "--sra-samples must be a readable regular file: ${sra_samples}"
+sra_samples="$(absolute_path "${sra_samples}")"
+require_interpolation_safe_path "--sra-samples" "${sra_samples}"
 [[ -z "${publish_dir_mode_override}" || "${publish_dir_mode_override}" == copy ]] \
     || die "SRA mode requires --publish_dir_mode copy because transient work is cleaned after success"
 [[ -n "${sra_checkpoint_dir}" ]] || die "SRA mode requires --sra-checkpoint-dir outside transient work"
@@ -782,6 +805,7 @@ preprocessing_work_root="${work_dir}/preprocess"
 state_dir="${resource_root}/sra"
 project_manifest="${state_dir}/sra_project_manifest.tsv"
 checkpoint_manifest="${state_dir}/sra_checkpoint_manifest.tsv"
+sra_sample_metadata="${state_dir}/sra_checkpoint_sample_metadata.tsv"
 
 for path in "${sra_checkpoint_dir}" "${sra_scratch_root}" "${sra_cache_dir}" "${sra_temp_dir}" "${work_dir}"; do
     [[ "${path}" != / && "${path}" != "${PIPELINE_ROOT}" ]] || die "unsafe SRA storage path: ${path}"
@@ -844,7 +868,8 @@ else
 fi
 
 declare -a sra_common=("${common_nextflow_args[@]}" \
-    --sraProject "${sra_project}" --sraCheckpointDir "${sra_checkpoint_dir}" \
+    --sraProject "${sra_project}" --sraSamples "${sra_samples}" \
+    --sraCheckpointDir "${sra_checkpoint_dir}" \
     --sraScratchDir "${acquisition_scratch}" --sraCacheDir "${sra_cache_dir}" \
     --sraTempDir "${sra_temp_dir}" --sraStateDir "${state_dir}" \
     --sraPlatforms "${sra_platforms}" --sraMaxSize "${sra_max_size}" \
@@ -862,7 +887,8 @@ if [[ "${dry_run}" == true ]]; then
     run_nextflow checkpoints_final sra-checkpoints "${work_dir}/checkpoints-final" \
         "${sra_common[@]}" --sraManifest "${project_manifest}" --sraRequireComplete true
     run_nextflow global sra-global "${work_dir}/global" "${sra_common[@]}" \
-        --sraCheckpointManifest "${state_dir}/sra_checkpoint_manifest.tsv"
+        --sraCheckpointManifest "${state_dir}/sra_checkpoint_manifest.tsv" \
+        --sraSampleMetadata "${state_dir}/sra_checkpoint_sample_metadata.tsv"
     printf 'Dry run only: SAMPLE_ID represents the deterministic pending-sample loop.\n'
     exit 0
 fi
@@ -920,7 +946,8 @@ run_nextflow checkpoints_final sra-checkpoints "${work_dir}/checkpoints-final" \
     "${sra_common[@]}" --sraManifest "${project_manifest}" --sraRequireComplete true
 
 run_nextflow global sra-global "${work_dir}/global" "${sra_common[@]}" \
-    --sraCheckpointManifest "${checkpoint_manifest}"
+    --sraCheckpointManifest "${checkpoint_manifest}" \
+    --sraSampleMetadata "${sra_sample_metadata}"
 
 success_marker="${state_dir}/sra_global_success.json"
 [[ -s "${success_marker}" ]] || die "global workflow exited without its validated success marker"

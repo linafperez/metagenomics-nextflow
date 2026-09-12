@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PROJECT_PATTERN = re.compile(r"^PRJ(?:NA|EB|DB)[0-9]+$")
 RUN_PATTERN = re.compile(r"^[SED]RR[0-9]+$")
 EXPERIMENT_PATTERN = re.compile(r"^[SED]RX[0-9]+$")
@@ -40,6 +40,8 @@ RUN_MANIFEST_FILENAME = "sra_project_manifest.tsv"
 SAMPLE_MANIFEST_FILENAME = "sra_sample_manifest.tsv"
 EXCLUSIONS_FILENAME = "sra_project_exclusions.tsv"
 SUMMARY_FILENAME = "sra_project_summary.json"
+REQUESTED_FILENAME = "sra_requested_samples.tsv"
+SAMPLE_METADATA_FILENAME = "sample_metadata.tsv"
 
 RUN_FIELDS = (
     "project_accession",
@@ -47,6 +49,8 @@ RUN_FIELDS = (
     "sample_id",
     "identity_source",
     "biosample_accession",
+    "group",
+    "selection_file_sha256",
     "experiment_accession",
     "run_order",
     "run_accession",
@@ -72,6 +76,8 @@ SAMPLE_FIELDS = (
     "sample_id",
     "identity_source",
     "biosample_accession",
+    "group",
+    "selection_file_sha256",
     "experiment_accession",
     "run_count",
     "run_accessions",
@@ -85,6 +91,21 @@ SAMPLE_FIELDS = (
     "total_bases",
     "total_size_mb",
     "metadata_warnings",
+)
+
+REQUESTED_FIELDS = (
+    "selection_order",
+    "biosample_accession",
+    "group",
+)
+
+SAMPLE_METADATA_FIELDS = (
+    "sample_id",
+    "biosample_accession",
+    "group",
+    "run_accessions",
+    "project_accession",
+    "sample_order",
 )
 
 ALIASES: dict[str, tuple[str, ...]] = {
@@ -144,6 +165,12 @@ class Resolution:
     errors: list[str]
     allowed_platforms: tuple[str, ...]
     source: str
+    requested: list[dict[str, str]] = field(default_factory=list)
+    selection_file_sha256: str = ""
+    selection_file_name: str = ""
+    selection_file_bytes: int = 0
+    group_column: str = ""
+    project_runinfo_record_count: int = 0
     source_details: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -156,7 +183,7 @@ class Resolution:
 
     @property
     def valid(self) -> bool:
-        return bool(self.eligible) and not self.excluded and not self.errors
+        return bool(self.requested) and bool(self.eligible) and not self.errors
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -173,6 +200,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--runinfo-file",
         type=Path,
         help="Offline RunInfo CSV/TSV fixture; disables all NCBI requests",
+    )
+    parser.add_argument(
+        "--selection-file",
+        type=Path,
+        help="TSV containing the explicit biosample_accession selection",
+    )
+    parser.add_argument(
+        "--group-column",
+        default="",
+        help="Optional selection column to preserve as categorical group metadata",
     )
     parser.add_argument(
         "--validate-existing",
@@ -215,10 +252,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         args.project = selected[0]
         if args.output_dir is None:
             parser.error("--output-dir is required")
+        if args.selection_file is None:
+            parser.error("--selection-file is required; BioProject-only discovery is disabled")
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
     if args.retries < 0:
         parser.error("--retries cannot be negative")
+    if args.group_column and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", args.group_column):
+        parser.error("--group-column contains unsupported characters")
     return args
 
 
@@ -239,6 +280,81 @@ def parse_platforms(value: str) -> tuple[str, ...]:
     if not platforms:
         raise ResolverError("the platform allowlist cannot be empty")
     return platforms
+
+
+def load_selection(
+    path: Path, group_column: str
+) -> tuple[list[dict[str, str]], bytes, str]:
+    """Read and validate the explicit BioSample cohort without reordering it."""
+
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ResolverError(f"cannot read BioSample selection file {path}: {exc}") from exc
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ResolverError("BioSample selection file is not valid UTF-8") from exc
+
+    reader = csv.DictReader(io.StringIO(text, newline=""), delimiter="\t")
+    if not reader.fieldnames:
+        raise ResolverError("BioSample selection file has no header")
+    if any(not (name or "").strip() for name in reader.fieldnames):
+        raise ResolverError("BioSample selection file contains an empty column name")
+    if len(set(reader.fieldnames)) != len(reader.fieldnames):
+        raise ResolverError("BioSample selection file contains duplicate column names")
+    if "biosample_accession" not in reader.fieldnames:
+        raise ResolverError(
+            "BioSample selection file must contain a biosample_accession column"
+        )
+    if group_column and group_column not in reader.fieldnames:
+        raise ResolverError(
+            f"configured group column {group_column!r} is absent from the BioSample selection file"
+        )
+    if group_column == "biosample_accession":
+        raise ResolverError("biosample_accession cannot also be the group column")
+
+    requested: list[dict[str, str]] = []
+    seen: set[str] = set()
+    errors: list[str] = []
+    try:
+        for line_number, row in enumerate(reader, start=2):
+            if None in row:
+                errors.append(f"selection line {line_number} contains unexpected extra fields")
+                continue
+            accession = (row.get("biosample_accession") or "").strip().upper()
+            group = (row.get(group_column) or "").strip() if group_column else ""
+            if not BIOSAMPLE_PATTERN.fullmatch(accession):
+                errors.append(
+                    f"selection line {line_number} has invalid BioSample accession {accession!r}"
+                )
+                continue
+            if accession in seen:
+                errors.append(f"selection line {line_number} duplicates BioSample {accession}")
+                continue
+            seen.add(accession)
+            if group_column and not group:
+                errors.append(
+                    f"selection line {line_number} has an empty {group_column!r} group value"
+                )
+            if any(character in group for character in "\t\r\n"):
+                errors.append(
+                    f"selection line {line_number} group contains a tab or line break"
+                )
+            requested.append(
+                {
+                    "selection_order": str(len(requested) + 1),
+                    "biosample_accession": accession,
+                    "group": group,
+                }
+            )
+    except csv.Error as exc:
+        errors.append(f"BioSample selection TSV parsing failed: {exc}")
+    if not requested:
+        errors.append("BioSample selection file contains no samples")
+    if errors:
+        raise ResolverError("\n".join(errors))
+    return requested, raw, hashlib.sha256(raw).hexdigest()
 
 
 def _http_bytes(
@@ -447,12 +563,20 @@ def normalize_rows(
     project: str,
     raw_rows: Iterable[dict[str, str]],
     allowed_platforms: tuple[str, ...],
-) -> list[RunRow]:
+    requested: Sequence[dict[str, str]],
+    selection_file_sha256: str,
+) -> tuple[list[RunRow], list[str]]:
+    requested_by_accession = {
+        row["biosample_accession"]: row for row in requested
+    }
     rows: list[RunRow] = []
     for index, raw in enumerate(raw_rows, start=1):
         run = _lookup(raw, "run").upper()
         experiment = _lookup(raw, "experiment").upper()
         biosample = _lookup(raw, "biosample").upper()
+        if biosample not in requested_by_accession:
+            continue
+        selection = requested_by_accession[biosample]
         layout = _lookup(raw, "layout").upper()
         strategy = _lookup(raw, "strategy").upper()
         source = _lookup(raw, "source").upper()
@@ -460,19 +584,16 @@ def normalize_rows(
         model = _lookup(raw, "model")
         download_path = _lookup(raw, "download_path")
 
-        # This pipeline processes shotgun metagenomics only.
-        # Ignore every SRA record that is not WGS metagenomic data.
-        if strategy != "WGS" or source != "METAGENOMIC":
-            continue
-
         row = RunRow(
             source_index=index,
             values={
                 "project_accession": project,
-                "sample_order": "",
-                "sample_id": "",
-                "identity_source": "",
+                "sample_order": selection["selection_order"],
+                "sample_id": biosample,
+                "identity_source": "BioSample",
                 "biosample_accession": biosample,
+                "group": selection["group"],
+                "selection_file_sha256": selection_file_sha256,
                 "experiment_accession": experiment,
                 "run_order": "",
                 "run_accession": run,
@@ -493,36 +614,13 @@ def normalize_rows(
             },
         )
 
-        if BIOSAMPLE_PATTERN.fullmatch(biosample):
-            row.values["sample_id"] = biosample
-            row.values["identity_source"] = "BioSample"
-        elif EXPERIMENT_PATTERN.fullmatch(experiment):
-            row.values["sample_id"] = experiment
-            row.values["identity_source"] = "Experiment"
-            row.add_warning(
-                "missing_biosample_used_experiment"
-                if not biosample
-                else "invalid_biosample_used_experiment"
-            )
-        elif RUN_PATTERN.fullmatch(run):
-            row.values["sample_id"] = run
-            row.values["identity_source"] = "Run"
-            row.add_warning(
-                "missing_experiment_used_run"
-                if not experiment
-                else "invalid_experiment_used_run"
-            )
-            row.add_warning("missing_biosample" if not biosample else "invalid_biosample")
-        else:
-            row.add_reason("no_valid_sample_identity")
-
         if not run:
             row.add_reason("missing_run_accession")
         elif not RUN_PATTERN.fullmatch(run):
             row.add_reason("invalid_run_accession")
         if experiment and not EXPERIMENT_PATTERN.fullmatch(experiment):
             row.add_warning("invalid_experiment_accession")
-        elif not experiment and row.values["identity_source"] != "Run":
+        elif not experiment:
             row.add_warning("missing_experiment_accession")
 
         raw_project = _lookup(raw, "project")
@@ -533,6 +631,10 @@ def normalize_rows(
 
         if layout != "PAIRED":
             row.add_reason("library_layout_not_paired" if layout else "missing_library_layout")
+        if strategy != "WGS":
+            row.add_reason("library_strategy_not_wgs" if strategy else "missing_library_strategy")
+        if source != "METAGENOMIC":
+            row.add_reason("library_source_not_metagenomic" if source else "missing_library_source")
         if not platform:
             row.add_reason("missing_platform")
         elif platform not in allowed_platforms:
@@ -558,10 +660,16 @@ def normalize_rows(
             row.add_reason("invalid_spots_with_mates")
         elif mates is None:
             row.add_warning("spots_with_mates_unavailable")
-        elif mates <= 0:
-            row.add_reason("non_positive_spots_with_mates")
+        elif mates < 0:
+            row.add_reason("negative_spots_with_mates")
+        elif spots is not None and mates > spots:
+            row.add_reason("spots_with_mates_exceeds_spots")
         elif spots is not None and mates != spots:
-            row.add_reason("spots_with_mates_does_not_equal_spots")
+            # RunInfo often reports fewer paired spots than total spots even
+            # for PAIRED libraries. Treat that aggregate as advisory: the
+            # acquisition helper still validates the materialized mates in
+            # full and refuses unequal/non-matching FASTQ pairs.
+            row.add_warning("spots_with_mates_differs_from_spots")
 
         bases_text, bases, bases_error = _integer_value(_lookup(raw, "bases"))
         row.values["bases"] = bases_text
@@ -585,31 +693,53 @@ def normalize_rows(
             row.add_warning("model_unavailable")
         rows.append(row)
 
+    errors: list[str] = []
     run_counts = Counter(row.values["run_accession"] for row in rows if row.values["run_accession"])
     for row in rows:
         if run_counts[row.values["run_accession"]] > 1:
             row.add_reason("duplicate_run_accession")
+    for run, count in sorted(run_counts.items()):
+        if count > 1:
+            errors.append(
+                f"selected RunInfo metadata contains duplicate or contradictory rows for run {run}"
+            )
 
     eligible = sorted(
         (row for row in rows if not row.reasons),
-        key=lambda item: (item.values["sample_id"], item.values["run_accession"]),
+        key=lambda item: (
+            int(item.values["sample_order"]),
+            item.values["run_accession"],
+        ),
     )
-    sample_orders = {
-        sample_id: order
-        for order, sample_id in enumerate(
-            sorted({row.values["sample_id"] for row in eligible}), start=1
-        )
-    }
     run_orders: defaultdict[str, int] = defaultdict(int)
     for row in eligible:
         sample_id = row.values["sample_id"]
         run_orders[sample_id] += 1
-        row.values["sample_order"] = str(sample_orders[sample_id])
         row.values["run_order"] = str(run_orders[sample_id])
-    for row in rows:
-        if row.reasons and row.values["sample_id"] in sample_orders:
-            row.values["sample_order"] = str(sample_orders[row.values["sample_id"]])
-    return rows
+
+    for selection in requested:
+        accession = selection["biosample_accession"]
+        matching = [row for row in rows if row.values["biosample_accession"] == accession]
+        if not matching:
+            errors.append(
+                f"requested BioSample {accession} is absent from BioProject RunInfo metadata"
+            )
+            continue
+        # Membership is represented directly by normalized RunInfo fields,
+        # avoiding any inference from human-readable sample names.
+        if all(
+            "bioproject_accession_mismatch" in row.reasons
+            or "missing_bioproject_accession" in row.reasons
+            for row in matching
+        ):
+            errors.append(
+                f"requested BioSample {accession} does not belong to BioProject {project}"
+            )
+        if not any(not row.reasons for row in matching):
+            errors.append(
+                f"requested BioSample {accession} has no eligible paired WGS METAGENOMIC run"
+            )
+    return rows, errors
 
 
 def _unique_join(values: Iterable[str]) -> str:
@@ -650,6 +780,10 @@ def build_sample_rows(run_rows: Sequence[dict[str, str]]) -> list[dict[str, str]
                 "sample_id": sample_id,
                 "identity_source": _unique_join(row["identity_source"] for row in rows),
                 "biosample_accession": _unique_join(row["biosample_accession"] for row in rows),
+                "group": _unique_join(row["group"] for row in rows),
+                "selection_file_sha256": _unique_join(
+                    row["selection_file_sha256"] for row in rows
+                ),
                 "experiment_accession": _unique_join(row["experiment_accession"] for row in rows),
                 "run_count": str(len(rows)),
                 "run_accessions": ";".join(row["run_accession"] for row in rows),
@@ -666,6 +800,22 @@ def build_sample_rows(run_rows: Sequence[dict[str, str]]) -> list[dict[str, str]
             }
         )
     return result
+
+
+def build_sample_metadata(
+    sample_rows: Sequence[dict[str, str]],
+) -> list[dict[str, str]]:
+    return [
+        {
+            "sample_id": row["sample_id"],
+            "biosample_accession": row["biosample_accession"],
+            "group": row["group"],
+            "run_accessions": row["run_accessions"],
+            "project_accession": row["project_accession"],
+            "sample_order": row["sample_order"],
+        }
+        for row in sample_rows
+    ]
 
 
 def _tsv_bytes(rows: Sequence[dict[str, str]], fields: Sequence[str]) -> bytes:
@@ -723,11 +873,17 @@ def render_reports(resolution: Resolution, raw_runinfo: bytes) -> dict[str, byte
         )
     ]
     sample_rows = build_sample_rows(run_rows)
+    requested_rows = [dict(row) for row in resolution.requested]
+    sample_metadata = build_sample_metadata(sample_rows)
     reports = {
         RUNINFO_FILENAME: raw_runinfo,
         RUN_MANIFEST_FILENAME: _tsv_bytes(run_rows, RUN_FIELDS),
         SAMPLE_MANIFEST_FILENAME: _tsv_bytes(sample_rows, SAMPLE_FIELDS),
         EXCLUSIONS_FILENAME: _tsv_bytes(exclusion_rows, RUN_FIELDS),
+        REQUESTED_FILENAME: _tsv_bytes(requested_rows, REQUESTED_FIELDS),
+        SAMPLE_METADATA_FILENAME: _tsv_bytes(
+            sample_metadata, SAMPLE_METADATA_FIELDS
+        ),
     }
     reason_counts = Counter(
         reason for row in resolution.excluded for reason in row.reasons
@@ -738,8 +894,12 @@ def render_reports(resolution: Resolution, raw_runinfo: bytes) -> dict[str, byte
         "project_accession": resolution.project,
         "valid": resolution.valid,
         "resolution_source": resolution.source,
+        "group_column": resolution.group_column,
         "allowed_platforms": list(resolution.allowed_platforms),
+        "project_runinfo_record_count": resolution.project_runinfo_record_count,
         "record_count": len(resolution.rows),
+        "requested_biosample_count": len(requested_rows),
+        "resolved_biosample_count": len(sample_rows),
         "eligible_run_count": len(run_rows),
         "excluded_run_count": len(exclusion_rows),
         "sample_count": len(sample_rows),
@@ -747,6 +907,11 @@ def render_reports(resolution: Resolution, raw_runinfo: bytes) -> dict[str, byte
         "metadata_warning_counts": dict(sorted(warning_counts.items())),
         "validation_errors": resolution.errors,
         "source_details": resolution.source_details,
+        "selection_file": {
+            "name": resolution.selection_file_name,
+            "sha256": resolution.selection_file_sha256,
+            "bytes": resolution.selection_file_bytes,
+        },
         "files": {
             name: {"sha256": _sha256(content), "bytes": len(content)}
             for name, content in sorted(reports.items())
@@ -765,6 +930,8 @@ def write_reports(output_dir: Path, reports: dict[str, bytes]) -> None:
         RUN_MANIFEST_FILENAME,
         SAMPLE_MANIFEST_FILENAME,
         EXCLUSIONS_FILENAME,
+        REQUESTED_FILENAME,
+        SAMPLE_METADATA_FILENAME,
         SUMMARY_FILENAME,
     ):
         _atomic_write(output_dir / filename, reports[filename])
@@ -784,7 +951,11 @@ def _read_tsv(path: Path, expected_fields: Sequence[str]) -> list[dict[str, str]
         raise ResolverError(f"cannot read {path}: {exc}") from exc
 
 
-def validate_existing(report_dir: Path) -> list[str]:
+def validate_existing(
+    report_dir: Path,
+    selection_file: Path | None = None,
+    group_column: str = "",
+) -> list[str]:
     errors: list[str] = []
     try:
         summary_raw = (report_dir / SUMMARY_FILENAME).read_bytes()
@@ -802,7 +973,15 @@ def validate_existing(report_dir: Path) -> list[str]:
     if summary.get("valid") is not True:
         errors.append("frozen project summary is marked invalid")
 
-    for filename in (RUNINFO_FILENAME, RUN_MANIFEST_FILENAME, SAMPLE_MANIFEST_FILENAME, EXCLUSIONS_FILENAME):
+    report_names = (
+        RUNINFO_FILENAME,
+        RUN_MANIFEST_FILENAME,
+        SAMPLE_MANIFEST_FILENAME,
+        EXCLUSIONS_FILENAME,
+        REQUESTED_FILENAME,
+        SAMPLE_METADATA_FILENAME,
+    )
+    for filename in report_names:
         path = report_dir / filename
         try:
             content = path.read_bytes()
@@ -819,12 +998,52 @@ def validate_existing(report_dir: Path) -> list[str]:
         run_rows = _read_tsv(report_dir / RUN_MANIFEST_FILENAME, RUN_FIELDS)
         exclusion_rows = _read_tsv(report_dir / EXCLUSIONS_FILENAME, RUN_FIELDS)
         sample_rows = _read_tsv(report_dir / SAMPLE_MANIFEST_FILENAME, SAMPLE_FIELDS)
+        requested_rows = _read_tsv(report_dir / REQUESTED_FILENAME, REQUESTED_FIELDS)
+        sample_metadata = _read_tsv(
+            report_dir / SAMPLE_METADATA_FILENAME, SAMPLE_METADATA_FIELDS
+        )
     except ResolverError as exc:
         errors.append(str(exc))
         return errors
 
+    if not requested_rows:
+        errors.append("frozen requested-BioSample manifest contains no samples")
     if not run_rows:
         errors.append("frozen run manifest contains no eligible runs")
+    selection_description = summary.get("selection_file", {})
+    selection_hash = selection_description.get("sha256", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(selection_hash)):
+        errors.append("frozen summary contains an invalid selection-file SHA-256")
+    if summary.get("group_column", "") != group_column and selection_file is not None:
+        errors.append("frozen group column differs from the requested group column")
+
+    requested_by_accession: dict[str, dict[str, str]] = {}
+    for expected_order, row in enumerate(requested_rows, start=1):
+        accession = row["biosample_accession"]
+        if row["selection_order"] != str(expected_order):
+            errors.append("requested BioSamples are not in consecutive selection order")
+        if not BIOSAMPLE_PATTERN.fullmatch(accession):
+            errors.append(f"requested manifest contains invalid BioSample {accession!r}")
+        if accession in requested_by_accession:
+            errors.append(f"requested manifest duplicates BioSample {accession}")
+        requested_by_accession[accession] = row
+        if summary.get("group_column") and not row["group"]:
+            errors.append(f"requested BioSample {accession} has an empty group")
+
+    if selection_file is not None:
+        try:
+            current_requested, current_raw, current_hash = load_selection(
+                selection_file, group_column
+            )
+        except ResolverError as exc:
+            errors.append(str(exc))
+        else:
+            if current_requested != requested_rows:
+                errors.append("frozen requested BioSamples differ from the selection file")
+            if current_hash != selection_hash:
+                errors.append("selection-file SHA-256 differs from frozen SRA state")
+            if len(current_raw) != selection_description.get("bytes"):
+                errors.append("selection-file byte count differs from frozen SRA state")
     seen_runs: set[str] = set()
     expected_sort: list[tuple[int, int]] = []
     orders_by_sample: defaultdict[str, list[int]] = defaultdict(list)
@@ -840,6 +1059,16 @@ def validate_existing(report_dir: Path) -> list[str]:
         seen_runs.add(run)
         if not SAMPLE_ID_PATTERN.fullmatch(row["sample_id"]):
             errors.append(f"{label}: invalid sample_id")
+        selection = requested_by_accession.get(row["biosample_accession"])
+        if selection is None or row["sample_id"] != row["biosample_accession"]:
+            errors.append(f"{label}: run is outside the explicit BioSample selection")
+        else:
+            if row["sample_order"] != selection["selection_order"]:
+                errors.append(f"{label}: sample_order differs from selection order")
+            if row["group"] != selection["group"]:
+                errors.append(f"{label}: group differs from explicit selection")
+        if row["selection_file_sha256"] != selection_hash:
+            errors.append(f"{label}: selection-file hash mismatch")
         for name, expected in (
             ("layout", "PAIRED"),
             ("strategy", "WGS"),
@@ -868,7 +1097,7 @@ def validate_existing(report_dir: Path) -> list[str]:
         if previous != row["sample_order"]:
             errors.append(f"sample {row['sample_id']} has inconsistent sample_order")
     try:
-        numeric_sample_orders = [int(value) for value in sample_order_values.values()]
+        numeric_sample_orders = sorted(int(value) for value in sample_order_values.values())
         if numeric_sample_orders != list(range(1, len(numeric_sample_orders) + 1)):
             errors.append("sample_order values are not consecutive")
     except ValueError:
@@ -880,10 +1109,25 @@ def validate_existing(report_dir: Path) -> list[str]:
     rebuilt_samples = build_sample_rows(run_rows) if run_rows else []
     if sample_rows != rebuilt_samples:
         errors.append("sample manifest does not match the frozen run manifest")
-    if exclusion_rows:
-        errors.append("a valid frozen report cannot contain excluded runs")
+    if sample_metadata != build_sample_metadata(sample_rows):
+        errors.append("sample metadata does not match the frozen sample manifest")
+    if {row["biosample_accession"] for row in sample_rows} != set(requested_by_accession):
+        errors.append("not every requested BioSample has an eligible resolved sample")
+    for row_number, row in enumerate(exclusion_rows, start=2):
+        label = f"{EXCLUSIONS_FILENAME} row {row_number}"
+        selection = requested_by_accession.get(row["biosample_accession"])
+        if selection is None:
+            errors.append(f"{label}: excluded run is outside the explicit selection")
+        elif row["group"] != selection["group"]:
+            errors.append(f"{label}: group differs from explicit selection")
+        if row["selection_file_sha256"] != selection_hash:
+            errors.append(f"{label}: selection-file hash mismatch")
+        if row["eligibility"] != "excluded" or not row["exclusion_reason"]:
+            errors.append(f"{label}: excluded row lacks an exclusion reason")
     expected_counts = {
         "record_count": len(run_rows) + len(exclusion_rows),
+        "requested_biosample_count": len(requested_rows),
+        "resolved_biosample_count": len(sample_rows),
         "eligible_run_count": len(run_rows),
         "excluded_run_count": len(exclusion_rows),
         "sample_count": len(sample_rows),
@@ -895,22 +1139,46 @@ def validate_existing(report_dir: Path) -> list[str]:
 
 
 def run_resolution(args: argparse.Namespace) -> int:
+    requested: list[dict[str, str]] = []
+    selection_raw = b""
+    selection_hash = ""
+    initial_errors: list[str] = []
+    try:
+        requested, selection_raw, selection_hash = load_selection(
+            args.selection_file, args.group_column
+        )
+    except ResolverError as exc:
+        initial_errors.append(str(exc))
+        try:
+            selection_raw = args.selection_file.read_bytes()
+            selection_hash = _sha256(selection_raw)
+        except OSError:
+            pass
     try:
         project = normalize_project(args.project)
         platforms = parse_platforms(args.platforms)
     except ResolverError as exc:
-        project = args.project.strip().upper()
+        initial_errors.append(str(exc))
+        project = (args.project or "").strip().upper()
         platforms = tuple()
+
+    if initial_errors:
         resolution = Resolution(
             project=project,
             rows=[],
-            errors=[str(exc)],
+            errors=initial_errors,
             allowed_platforms=platforms,
             source="offline_runinfo" if args.runinfo_file else "ncbi_eutils",
+            requested=requested,
+            selection_file_sha256=selection_hash,
+            selection_file_name=args.selection_file.name,
+            selection_file_bytes=len(selection_raw),
+            group_column=args.group_column,
         )
         raw = args.runinfo_file.read_bytes() if args.runinfo_file and args.runinfo_file.is_file() else b""
         write_reports(args.output_dir, render_reports(resolution, raw))
-        print(f"ERROR: {exc}", file=sys.stderr)
+        for error in initial_errors:
+            print(f"ERROR: {error}", file=sys.stderr)
         return 0 if args.write_invalid_and_succeed else 2
 
     source_details: dict[str, Any] = {}
@@ -937,6 +1205,11 @@ def run_resolution(args: argparse.Namespace) -> int:
             errors=[str(exc)],
             allowed_platforms=platforms,
             source=source,
+            requested=requested,
+            selection_file_sha256=selection_hash,
+            selection_file_name=args.selection_file.name,
+            selection_file_bytes=len(selection_raw),
+            group_column=args.group_column,
             source_details=source_details,
         )
         write_reports(args.output_dir, render_reports(resolution, raw))
@@ -944,13 +1217,25 @@ def run_resolution(args: argparse.Namespace) -> int:
         return 0 if args.write_invalid_and_succeed else 2
 
     raw_rows, parse_errors = parse_runinfo(raw)
-    rows = normalize_rows(project, raw_rows, platforms)
+    rows, selection_errors = normalize_rows(
+        project,
+        raw_rows,
+        platforms,
+        requested,
+        selection_hash,
+    )
     resolution = Resolution(
         project=project,
         rows=rows,
-        errors=parse_errors,
+        errors=[*parse_errors, *selection_errors],
         allowed_platforms=platforms,
         source=source,
+        requested=requested,
+        selection_file_sha256=selection_hash,
+        selection_file_name=args.selection_file.name,
+        selection_file_bytes=len(selection_raw),
+        group_column=args.group_column,
+        project_runinfo_record_count=len(raw_rows),
         source_details=source_details,
     )
     reports = render_reports(resolution, raw)
@@ -964,6 +1249,8 @@ def run_resolution(args: argparse.Namespace) -> int:
     )
     if resolution.valid:
         return 0
+    for error in resolution.errors:
+        print(f"ERROR: {error}", file=sys.stderr)
     print(
         f"ERROR: BioProject {project} does not satisfy the pipeline input contract; "
         f"see {args.output_dir / EXCLUSIONS_FILENAME} and {args.output_dir / SUMMARY_FILENAME}",
@@ -975,7 +1262,11 @@ def run_resolution(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.validate_existing is not None:
-        errors = validate_existing(args.validate_existing)
+        errors = validate_existing(
+            args.validate_existing,
+            args.selection_file,
+            args.group_column,
+        )
         if errors:
             for error in errors:
                 print(f"ERROR: {error}", file=sys.stderr)

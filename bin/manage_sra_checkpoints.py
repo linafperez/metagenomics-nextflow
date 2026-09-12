@@ -25,7 +25,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Iterator, Sequence
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 CHECKPOINT_OWNER_NAME = "sra_checkpoint_owner.json"
 SAMPLE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 RUN_FIELDS = (
@@ -34,6 +34,8 @@ RUN_FIELDS = (
     "sample_id",
     "identity_source",
     "biosample_accession",
+    "group",
+    "selection_file_sha256",
     "experiment_accession",
     "run_order",
     "run_accession",
@@ -59,6 +61,8 @@ CHECKPOINT_FIELDS = (
     "sample_id",
     "identity_source",
     "biosample_accession",
+    "group",
+    "selection_file_sha256",
     "experiment_accessions",
     "run_count",
     "run_accessions",
@@ -75,6 +79,14 @@ CHECKPOINT_FIELDS = (
     "status",
 )
 PENDING_FIELDS = ("sample_order", "sample_id", "reason")
+SAMPLE_METADATA_FIELDS = (
+    "sample_id",
+    "biosample_accession",
+    "group",
+    "run_accessions",
+    "project_accession",
+    "sample_order",
+)
 SCIENTIFIC_RESULT_ROOTS = (
     "01_quality_control_and_filtering",
     "02_mag_construction",
@@ -133,6 +145,7 @@ BASELINE_OUTPUT_PATHS = {
 }
 ABUNDANCE_FIELDS = (
     "sample",
+    "group",
     "mag_id",
     "relative_abundance_percent",
     "mean_coverage",
@@ -222,9 +235,24 @@ def read_run_manifest(path: Path) -> list[dict[str, str]]:
     for row in rows:
         if row["eligibility"] != "eligible" or row["exclusion_reason"]:
             raise CheckpointError(f"run {row['run_accession']} is not eligible")
+        if row["sample_id"] != row["biosample_accession"]:
+            raise CheckpointError("SRA sample identity is not the selected BioSample accession")
+        if not re.fullmatch(r"[0-9a-f]{64}", row["selection_file_sha256"]):
+            raise CheckpointError("frozen SRA run manifest has an invalid selection hash")
     projects = {row["project_accession"] for row in rows}
     if len(projects) != 1:
         raise CheckpointError("frozen SRA run manifest contains multiple BioProjects")
+    selection_hashes = {row["selection_file_sha256"] for row in rows}
+    if len(selection_hashes) != 1:
+        raise CheckpointError("frozen SRA run manifest contains multiple selection hashes")
+    metadata_by_sample: dict[str, tuple[str, str]] = {}
+    for row in rows:
+        value = (row["biosample_accession"], row["group"])
+        previous = metadata_by_sample.setdefault(row["sample_id"], value)
+        if previous != value:
+            raise CheckpointError(
+                f"sample {row['sample_id']} has contradictory BioSample/group metadata"
+            )
     return rows
 
 
@@ -235,11 +263,15 @@ def expected_checkpoint_owner(
         "schema_version": SCHEMA_VERSION,
         "project_accession": rows[0]["project_accession"],
         "run_manifest_sha256": manifest_hash,
+        "selection_file_sha256": rows[0]["selection_file_sha256"],
     }
 
 
 def validate_checkpoint_owner(
-    root: Path, project_accession: str, manifest_hash: str
+    root: Path,
+    project_accession: str,
+    manifest_hash: str,
+    selection_file_sha256: str,
 ) -> dict[str, Any]:
     owner_path = safe_child(root / CHECKPOINT_OWNER_NAME, root)
     if owner_path.is_symlink():
@@ -265,6 +297,10 @@ def validate_checkpoint_owner(
             "checkpoint root is bound to a different frozen manifest; "
             "use a dedicated empty root for the new cohort"
         )
+    if owner.get("selection_file_sha256") != selection_file_sha256:
+        raise CheckpointError(
+            "checkpoint root is bound to a different explicit BioSample selection"
+        )
     return owner
 
 
@@ -276,7 +312,10 @@ def claim_checkpoint_root(
     owner_path = safe_child(root / CHECKPOINT_OWNER_NAME, root)
     if owner_path.exists() or owner_path.is_symlink():
         return validate_checkpoint_owner(
-            root, expected["project_accession"], expected["run_manifest_sha256"]
+            root,
+            expected["project_accession"],
+            expected["run_manifest_sha256"],
+            expected["selection_file_sha256"],
         )
     try:
         existing_entries = list(root.iterdir())
@@ -293,7 +332,10 @@ def claim_checkpoint_root(
         descriptor = os.open(owner_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
         return validate_checkpoint_owner(
-            root, expected["project_accession"], expected["run_manifest_sha256"]
+            root,
+            expected["project_accession"],
+            expected["run_manifest_sha256"],
+            expected["selection_file_sha256"],
         )
     try:
         with os.fdopen(descriptor, "wb") as handle:
@@ -439,6 +481,8 @@ def sample_record(
         "sample_id": first["sample_id"],
         "identity_source": first["identity_source"],
         "biosample_accession": first["biosample_accession"],
+        "group": first["group"],
+        "selection_file_sha256": first["selection_file_sha256"],
         "experiment_accessions": experiments,
         "run_count": len(sample_rows),
         "run_accessions": [row["run_accession"] for row in sample_rows],
@@ -546,6 +590,8 @@ def expected_record_values(sample_rows: Sequence[dict[str, str]], manifest_hash:
         "sample_id": first["sample_id"],
         "identity_source": first["identity_source"],
         "biosample_accession": first["biosample_accession"],
+        "group": first["group"],
+        "selection_file_sha256": first["selection_file_sha256"],
         "experiment_accessions": sorted({row["experiment_accession"] for row in sample_rows if row["experiment_accession"]}),
         "run_count": len(sample_rows),
         "run_accessions": [row["run_accession"] for row in sample_rows],
@@ -623,6 +669,8 @@ def validate_record(
         "sample_id": record["sample_id"],
         "identity_source": record["identity_source"],
         "biosample_accession": record["biosample_accession"],
+        "group": record["group"],
+        "selection_file_sha256": record["selection_file_sha256"],
         "experiment_accessions": ";".join(record["experiment_accessions"]),
         "run_count": record["run_count"],
         "run_accessions": ";".join(record["run_accessions"]),
@@ -663,9 +711,26 @@ def reconcile(args: argparse.Namespace) -> int:
     pending.sort(key=lambda row: (int(row["sample_order"]), row["sample_id"]))
     atomic_write(args.output_manifest, tsv_bytes(complete, CHECKPOINT_FIELDS))
     atomic_write(args.pending_output, tsv_bytes(pending, PENDING_FIELDS))
+    if args.metadata_output:
+        metadata_rows = [
+            {
+                "sample_id": row["sample_id"],
+                "biosample_accession": row["biosample_accession"],
+                "group": row["group"],
+                "run_accessions": row["run_accessions"],
+                "project_accession": row["project_accession"],
+                "sample_order": row["sample_order"],
+            }
+            for row in complete
+        ]
+        atomic_write(
+            args.metadata_output,
+            tsv_bytes(metadata_rows, SAMPLE_METADATA_FIELDS),
+        )
     status = {
         "schema_version": SCHEMA_VERSION,
         "project_accession": rows[0]["project_accession"],
+        "selection_file_sha256": rows[0]["selection_file_sha256"],
         "expected_samples": len(group_samples(rows)),
         "complete_samples": len(complete),
         "pending_samples": len(pending),
@@ -1033,6 +1098,7 @@ def validate_final_mag_abundance(
             "checkpoint manifest contains duplicate or unsafe sample identifiers"
         )
     expected_samples = set(sample_ids)
+    expected_groups = {row["sample_id"]: row["group"] for row in checkpoint_rows}
 
     final_mag_dir = (
         results_root / "02_mag_construction" / "final_catalog" / "final_catalog"
@@ -1066,11 +1132,17 @@ def validate_final_mag_abundance(
                         f"final MAG abundance row {row_number} contains unexpected fields"
                     )
                 sample_id = (row.get("sample") or "").strip()
+                group = (row.get("group") or "").strip()
                 mag_id = (row.get("mag_id") or "").strip()
                 if sample_id not in expected_samples or mag_id not in expected_mags:
                     raise CheckpointError(
                         "final MAG abundance contains a row outside the checkpoint-sample "
                         f"and final-MAG cohorts: sample={sample_id!r}, mag_id={mag_id!r}"
+                    )
+                if group != expected_groups[sample_id]:
+                    raise CheckpointError(
+                        "final MAG abundance group differs from checkpoint metadata for "
+                        f"sample {sample_id!r}"
                     )
                 pair = (sample_id, mag_id)
                 if pair in seen_pairs:
@@ -1079,7 +1151,7 @@ def validate_final_mag_abundance(
                         f"sample={sample_id!r}, mag_id={mag_id!r}"
                     )
                 seen_pairs.add(pair)
-                for metric in ABUNDANCE_FIELDS[2:]:
+                for metric in ABUNDANCE_FIELDS[3:]:
                     _validate_abundance_number(row.get(metric), metric, sample_id, mag_id)
     except (OSError, csv.Error) as exc:
         raise CheckpointError(f"cannot read final MAG abundance table: {exc}") from exc
@@ -1239,8 +1311,16 @@ def cleanup(args: argparse.Namespace) -> None:
         raise CheckpointError(
             "checkpoint manifest contains multiple frozen-manifest hashes"
         )
+    selection_hashes = {row["selection_file_sha256"] for row in rows}
+    if len(selection_hashes) != 1:
+        raise CheckpointError(
+            "checkpoint manifest contains multiple selection-file hashes"
+        )
     validate_checkpoint_owner(
-        root, str(success.get("project_accession")), next(iter(manifest_hashes))
+        root,
+        str(success.get("project_accession")),
+        next(iter(manifest_hashes)),
+        next(iter(selection_hashes)),
     )
     cleanup_record_path = root / "sra_checkpoint_cleanup.json"
     previous_cleanup: dict[str, Any] | None = None
@@ -1448,6 +1528,7 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--output-manifest", required=True, type=Path)
     check.add_argument("--pending-output", required=True, type=Path)
     check.add_argument("--status-output", type=Path)
+    check.add_argument("--metadata-output", type=Path)
     check.add_argument("--require-complete", action="store_true")
 
     sample_check = commands.add_parser(

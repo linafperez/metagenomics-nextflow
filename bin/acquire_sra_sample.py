@@ -33,6 +33,8 @@ RUN_FIELDS = (
     "sample_id",
     "identity_source",
     "biosample_accession",
+    "group",
+    "selection_file_sha256",
     "experiment_accession",
     "run_order",
     "run_accession",
@@ -226,8 +228,10 @@ def load_sample_rows(manifest: Path, sample_id: str) -> list[dict[str, str]]:
             raise AcquisitionError(f"run {run} has no platform")
         if row["spots"] and row["spots_with_mates"]:
             try:
-                if int(row["spots"]) != int(row["spots_with_mates"]):
-                    raise AcquisitionError(f"run {run} contains spots without mates")
+                spots = int(row["spots"])
+                spots_with_mates = int(row["spots_with_mates"])
+                if spots <= 0 or spots_with_mates < 0 or spots_with_mates > spots:
+                    raise AcquisitionError(f"run {run} has contradictory spot counts")
             except ValueError as exc:
                 raise AcquisitionError(f"run {run} has invalid spot counts") from exc
         try:

@@ -9,6 +9,8 @@ process RESOLVE_SRA_PROJECT {
     val project_accession
     val allowed_platforms
     val contact_email
+    path selection_file
+    val group_column
     path resolver
 
     output:
@@ -17,6 +19,8 @@ process RESOLVE_SRA_PROJECT {
     path 'sra_project_exclusions.tsv', emit: exclusions
     path 'sra_project_summary.json', emit: summary
     path 'sra_project_runinfo.csv', emit: runinfo
+    path 'sra_requested_samples.tsv', emit: requested
+    path 'sample_metadata.tsv', emit: metadata
     tuple val("${task.process}"), val('python'), val('3.12.11'), emit: versions
 
     script:
@@ -27,13 +31,16 @@ process RESOLVE_SRA_PROJECT {
         error 'SRA platform allowlist must contain only comma-separated platform names'
     }
     def email_arg = contact_email ? "--email '${contact_email}'" : ''
+    def group_arg = group_column ? "--group-column '${group_column}'" : ''
 
     """
     python3 "${resolver}" \
         "${project_accession}" \
         --output-dir . \
+        --selection-file "${selection_file}" \
         --platforms "${allowed_platforms}" \
         ${email_arg} \
+        ${group_arg} \
         --write-invalid-and-succeed
     """
 }
@@ -51,17 +58,23 @@ process VALIDATE_SRA_PROJECT {
     path exclusions
     path summary
     path runinfo
+    path requested
+    path metadata
+    path selection_file
+    val group_column
     path resolver
 
     output:
     path 'sra_project_manifest.validated', emit: sentinel
-    tuple val("${task.process}"), val('sra_project_resolver'), val('1.0.0'), emit: versions
+    tuple val("${task.process}"), val('sra_project_resolver'), val('2.0.0'), emit: versions
 
     script:
     """
     mkdir frozen_manifest
-    cp "${run_manifest}" "${sample_manifest}" "${exclusions}" "${summary}" "${runinfo}" frozen_manifest/
-    python3 "${resolver}" --validate-existing frozen_manifest
+    cp "${run_manifest}" "${sample_manifest}" "${exclusions}" "${summary}" "${runinfo}" "${requested}" "${metadata}" frozen_manifest/
+    python3 "${resolver}" --validate-existing frozen_manifest \
+        --selection-file "${selection_file}" \
+        ${group_column ? "--group-column '${group_column}'" : ''}
     printf 'validated\n' > sra_project_manifest.validated
     """
 }
