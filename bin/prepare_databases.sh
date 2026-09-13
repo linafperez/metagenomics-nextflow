@@ -308,9 +308,19 @@ verify_md5_file() {
     fi
     command -v md5sum >/dev/null 2>&1 || die "md5sum is required"
     archive_name="$(basename "${archive}")"
-    expected="$(grep -F "${archive_name}" "${checksum_file}" | head -n 1 | awk '{print $1}')"
+    expected="$(awk -v name="${archive_name}" '
+        NF >= 2 {
+            path=$2
+            sub(/^\*/, "", path)
+            count=split(path, parts, "/")
+            if (parts[count] == name) {
+                print $1
+                exit
+            }
+        }
+    ' "${checksum_file}")"
     if [[ -z "${expected}" ]]; then
-        expected="$(awk 'NF {print $1; exit}' "${checksum_file}")"
+        expected="$(awk 'NF {count++; hash=$1} END {if (count == 1) print hash}' "${checksum_file}")"
     fi
     [[ "${expected}" =~ ^[0-9a-fA-F]{32}$ ]] \
         || die "no valid MD5 checksum was found for ${archive_name}"
@@ -382,7 +392,7 @@ validate_eggnog() {
 validate_interproscan() {
     local entry
     [[ -d "${resource_path[interproscan]}" ]] || return 1
-    entry="$(find -L "${resource_path[interproscan]}" -mindepth 1 -maxdepth 2 \
+    entry="$(find -L "${resource_path[interproscan]}" -mindepth 1 \
         -type f -size +0c -print -quit 2>/dev/null)"
     [[ -n "${entry}" ]]
 }
@@ -569,7 +579,28 @@ prepare_phylophlan() {
     if [[ "${dry_run}" != true ]]; then
         database_file="$(find "${stage}" -maxdepth 3 -type f \
             -name 'phylophlan*.faa' -size +0c -print -quit)"
-        [[ -n "${database_file}" ]] || die "PhyloPhlAn marker database validation failed"
+
+        if [[ -z "${database_file}" ]]; then
+            compressed_database="$(find "${stage}" -maxdepth 3 -type f \
+                \( -name 'phylophlan*.faa.bz2' -o -name 'phylophlan*.bz2' \) \
+                -size +0c -print -quit)"
+
+            if [[ -n "${compressed_database}" ]]; then
+                command -v bzip2 >/dev/null 2>&1 \
+                    || die "bzip2 is required to prepare the PhyloPhlAn marker database"
+
+                database_directory="$(dirname "${compressed_database}")"
+                database_file="${database_directory}/phylophlan.faa"
+
+                run_command bash -o pipefail -c \
+                    'bzip2 -cd "$1" > "$2"' \
+                    prepare-phylophlan "${compressed_database}" "${database_file}"
+            fi
+        fi
+
+        [[ -n "${database_file}" && -s "${database_file}" ]] \
+            || die "PhyloPhlAn marker database validation failed"
+
         extracted="$(dirname "${database_file}")"
     fi
     install_staged_directory "${extracted}" "${resource_path[phylophlan]}"
@@ -640,7 +671,7 @@ prepare_interproscan() {
     else
         data_directory="$(find "${stage}" -mindepth 2 -maxdepth 4 -type d -name data -print -quit)"
         [[ -n "${data_directory}" ]] || die "InterProScan data directory was not found"
-        find "${data_directory}" -mindepth 1 -maxdepth 2 -type f -size +0c -print -quit \
+        find "${data_directory}" -mindepth 1 -type f -size +0c -print -quit \
             | grep -q . || die "InterProScan data validation failed"
         mv -- "${data_directory}" "${final_directory}"
     fi
