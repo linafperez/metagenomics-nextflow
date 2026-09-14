@@ -2,7 +2,7 @@ process COMBINE_MAG_CATALOGS {
     tag "${meta.id}"
     label 'process_single'
 
-    container 'python:3.12.11-slim-bookworm'
+    container 'python:3.12.11-bookworm'
     conda "${moduleDir}/environment.yml"
 
     input:

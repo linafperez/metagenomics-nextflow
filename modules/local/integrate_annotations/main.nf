@@ -3,7 +3,7 @@ process INTEGRATE_ANNOTATIONS {
     label 'process_single'
 
     conda "${moduleDir}/environment.yml"
-    container "${task.ext.container ?: 'python:3.12.11-slim-bookworm'}"
+    container "${task.ext.container ?: 'python:3.12.11-bookworm'}"
 
     input:
     tuple val(meta), path(proteins), path(gff), path(eggnog_annotations), path(interproscan_tsv)

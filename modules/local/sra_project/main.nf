@@ -2,7 +2,7 @@ process RESOLVE_SRA_PROJECT {
     tag "${project_accession}"
     label 'process_single'
 
-    container 'python:3.12.11-slim-bookworm'
+    container 'python:3.12.11-bookworm'
     conda "${moduleDir}/environment.yml"
 
     input:
@@ -49,7 +49,7 @@ process VALIDATE_SRA_PROJECT {
     tag "frozen project manifest"
     label 'process_single'
 
-    container 'python:3.12.11-slim-bookworm'
+    container 'python:3.12.11-bookworm'
     conda "${moduleDir}/environment.yml"
 
     input:

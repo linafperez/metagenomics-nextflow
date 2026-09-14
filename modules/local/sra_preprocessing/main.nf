@@ -5,7 +5,7 @@ process PERSIST_SRA_CHECKPOINT {
     // Always replay this durable commit instead of trusting a cached side effect.
     cache false
 
-    container 'python:3.12.11-slim-bookworm'
+    container 'python:3.12.11-bookworm'
     containerOptions "${params.sraContainerOptions ?: ''}"
     conda "${moduleDir}/environment.yml"
 
@@ -53,7 +53,7 @@ process CHECK_SRA_CHECKPOINTS {
     // Always observe current external checkpoint contents on staged resumes.
     cache false
 
-    container 'python:3.12.11-slim-bookworm'
+    container 'python:3.12.11-bookworm'
     containerOptions "${params.sraContainerOptions ?: ''}"
     conda "${moduleDir}/environment.yml"
 
@@ -87,7 +87,7 @@ process FINALIZE_SRA_GLOBAL_RUN {
     tag "${project_accession}"
     label 'process_single'
 
-    container 'python:3.12.11-slim-bookworm'
+    container 'python:3.12.11-bookworm'
     conda "${moduleDir}/environment.yml"
 
     input:
