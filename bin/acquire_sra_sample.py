@@ -297,10 +297,15 @@ def _locate_prefetched_accession(prefetch_root: Path, run: str) -> Path:
 
 def _assert_fasterq_pair(output_dir: Path, run: str) -> tuple[Path, Path]:
     expected = (output_dir / f"{run}_1.fastq", output_dir / f"{run}_2.fastq")
+    singleton = output_dir / f"{run}.fastq"
+
     entries = sorted(path for path in output_dir.iterdir())
-    unexpected = [path.name for path in entries if path not in expected]
+    allowed = {*expected, singleton}
+
+    unexpected = [path.name for path in entries if path not in allowed]
     missing = [path.name for path in expected if not path.is_file()]
     empty = [path.name for path in expected if path.is_file() and path.stat().st_size == 0]
+
     if unexpected or missing or empty:
         details = []
         if missing:
@@ -308,13 +313,28 @@ def _assert_fasterq_pair(output_dir: Path, run: str) -> tuple[Path, Path]:
         if empty:
             details.append("empty=" + ",".join(empty))
         if unexpected:
-            details.append("unexpected/singleton=" + ",".join(unexpected))
+            details.append("unexpected=" + ",".join(unexpected))
         raise AcquisitionError(
-            f"fasterq-dump output for {run} is not exactly one non-empty paired FASTQ set "
+            f"fasterq-dump output for {run} does not contain a valid paired FASTQ set "
             f"({' ; '.join(details)})"
         )
-    return expected
 
+    if singleton.exists():
+        if not singleton.is_file():
+            raise AcquisitionError(
+                f"unexpected non-file singleton path for {run}: {singleton}"
+            )
+
+        singleton_size = singleton.stat().st_size
+        print(
+            f"WARNING: discarding singleton/unpaired FASTQ {singleton.name} "
+            f"({singleton_size} bytes); paired-end workflow retains only "
+            f"{expected[0].name} and {expected[1].name}",
+            file=sys.stderr,
+        )
+        singleton.unlink()
+
+    return expected
 
 def _compress_mate(
     source: Path,
