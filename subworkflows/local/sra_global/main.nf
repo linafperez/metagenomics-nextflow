@@ -30,21 +30,14 @@ workflow SRA_GLOBAL {
         ])
     }
 
-    ch_persisted_reports = ch_checkpoint_rows
-        .flatMap { row ->
-            new groovy.json.JsonSlurper().parseText(row.reports_json).findAll { path ->
-                !path.toString().endsWith('_versions.tsv')
-            }
-        }
-        .map { report -> file(report, checkIfExists: true) }
+    // Reports are already persisted under the durable checkpoint root.
+    // Read them directly instead of reparsing JSON embedded in the TSV manifest.
+    ch_persisted_reports = channel
+        .fromPath("${params.sraCheckpointDir}/reports/*/*", checkIfExists: true)
+        .filter { report -> !report.name.endsWith('_versions.tsv') }
 
-    ch_preprocessing_versions = ch_checkpoint_rows
-        .flatMap { row ->
-            new groovy.json.JsonSlurper().parseText(row.reports_json).findAll { path ->
-                path.toString().endsWith('_versions.tsv') || path.toString().endsWith('preprocessing_versions.tsv')
-            }
-        }
-        .map { version_file -> file(version_file, checkIfExists: true) }
+    ch_preprocessing_versions = channel
+        .fromPath("${params.sraCheckpointDir}/reports/*/*_versions.tsv", checkIfExists: true)
         .splitCsv(header: false, sep: '\t')
         .map { fields -> tuple(fields[0], fields[1], fields[2]) }
 
