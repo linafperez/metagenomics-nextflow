@@ -52,7 +52,7 @@ process SPADES {
         --threads ${task.cpus} \
         --memory ${memory_gb} \
         ${args} \
-        --output "${prefix}.spades" \
+        -o "${prefix}.spades" \
         > "${prefix}.spades.stdout.log" 2>&1
 
     mv "${prefix}.spades/contigs.fasta" "${prefix}.contigs.fa"
