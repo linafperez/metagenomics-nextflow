@@ -184,7 +184,7 @@ Common requirements:
   executable; a Conda installation without Mamba is insufficient.
 
 Local execution uses the Nextflow local executor. Default production resource
-requests are 500 GB for MEGAHIT and 1,700 GB for SPAdes. A workstation that
+requests are 500 GB for MEGAHIT and 1,800 GB for SPAdes. A workstation that
 cannot satisfy those requests should use an appropriately sized HPC environment;
 do not lower production resources without assessing the dataset.
 
@@ -838,7 +838,7 @@ nextflow run . -profile hpc,apptainer \
 | `--save_intermediates` | `false` | Publish selected large native intermediate directories |
 | `--local_max_jobs` | `2` | Local executor queue size |
 | `--max_cpus` | `32` | Per-task profile resource ceiling |
-| `--max_memory` | `1700 GB` | Per-task profile resource ceiling |
+| `--max_memory` | `1800 GB` | Per-task profile resource ceiling |
 | `--max_time` | `14d` | Per-task profile resource ceiling |
 | `--slurm_account` | unset | SLURM account |
 | `--slurm_queue` | unset | SLURM partition/queue |
@@ -937,7 +937,7 @@ success.
 
 Historical SLURM CPU/RAM requests and their current selectors are mapped in
 [docs/original_resource_mapping.tsv](docs/original_resource_mapping.tsv). In
-particular, the recovered metaSPAdes request is 32 CPUs and 1,700 GB RAM.
+particular, the recovered metaSPAdes request is 32 CPUs and 1,800 GB RAM.
 Historical scripts did not provide elapsed-time requests and requested no GPUs;
 the audit records those facts explicitly as `not recorded` and `none requested`.
 Current time limits are identified as policy fallbacks, not benchmarks.

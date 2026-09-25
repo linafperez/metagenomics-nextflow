@@ -281,7 +281,7 @@
     "max_memory": {
       "type": "string",
       "pattern": "^[0-9]+(?:\\.[0-9]+)?\\s*(?:KB|MB|GB|TB)$",
-      "default": "1700 GB"
+      "default": "1800 GB"
     },
     "max_time": {
       "type": "string",
