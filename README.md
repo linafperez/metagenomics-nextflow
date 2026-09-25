@@ -184,10 +184,14 @@ Common requirements:
   executable; a Conda installation without Mamba is insufficient.
 
 Local execution uses the Nextflow local executor. Default production resource
-requests preserve the historical workflow, including 500 GB for MEGAHIT and
-1,800 GB for SPAdes. A workstation that cannot satisfy those requests should
-use an appropriately sized HPC environment; do not lower production resources
-without assessing the dataset.
+requests are 500 GB for MEGAHIT and 1,700 GB for SPAdes. A workstation that
+cannot satisfy those requests should use an appropriately sized HPC environment;
+do not lower production resources without assessing the dataset.
+
+`spades_only_assembler` defaults to `false`. When set to `true`, the SPAdes
+module adds `--only-assembler`, skipping BayesHammer read error correction.
+This is an explicit fallback for memory-constrained environments and changes
+the metaSPAdes execution mode, so it should be reported in the analysis methods.
 
 HPC execution additionally requires a SLURM cluster, a shared filesystem, a
 site-approved Conda or container runtime, and configured account/queue/QoS

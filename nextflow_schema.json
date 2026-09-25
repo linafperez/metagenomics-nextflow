@@ -266,6 +266,11 @@
     "save_host_removed_reads": {"type": "boolean", "default": true},
     "save_bam": {"type": "boolean", "default": false},
     "save_intermediates": {"type": "boolean", "default": false},
+    "spades_only_assembler": {
+      "type": "boolean",
+      "default": false,
+      "description": "Run metaSPAdes with --only-assembler, skipping BayesHammer read error correction for memory-constrained environments."
+    },
     "slurm_account": {"type": ["string", "null"]},
     "slurm_queue": {"type": ["string", "null"]},
     "slurm_qos": {"type": ["string", "null"]},
@@ -276,7 +281,7 @@
     "max_memory": {
       "type": "string",
       "pattern": "^[0-9]+(?:\\.[0-9]+)?\\s*(?:KB|MB|GB|TB)$",
-      "default": "1800 GB"
+      "default": "1700 GB"
     },
     "max_time": {
       "type": "string",
