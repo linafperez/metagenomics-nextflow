@@ -31,7 +31,25 @@
       }
     }
   ],
+  "allOf": [
+    {
+      "if": {
+        "required": ["spadesCoassemblyMode"],
+        "properties": {"spadesCoassemblyMode": {"const": "condition"}}
+      },
+      "then": {
+        "required": ["groupColumn"],
+        "properties": {"groupColumn": {"type": "string", "minLength": 1}}
+      }
+    }
+  ],
   "properties": {
+    "spadesCoassemblyMode": {
+      "type": "string",
+      "enum": ["global", "condition"],
+      "default": "global",
+      "description": "SPAdes coassembly strategy. condition requires groupColumn and merges independently assembled groups before a single downstream branch. MEGAHIT remains global."
+    },
     "input": {
       "type": ["string", "null"],
       "description": "CSV samplesheet with sample, fastq_1, and fastq_2 columns. Mutually exclusive with sraProject."

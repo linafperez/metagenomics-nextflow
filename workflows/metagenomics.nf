@@ -10,6 +10,14 @@ workflow METAGENOMICS {
     def has_project = params.sraProject != null && !params.sraProject.toString().trim().isEmpty()
     def has_selection = params.sraSamples != null && !params.sraSamples.toString().trim().isEmpty()
     def group_column = params.groupColumn?.toString()?.trim() ?: ''
+    def spades_mode = params.spadesCoassemblyMode?.toString()
+
+    if (!(spades_mode in ['global', 'condition'])) {
+        error '--spades-coassembly-mode (--spadesCoassemblyMode) must be global or condition'
+    }
+    if (spades_mode == 'condition' && !group_column) {
+        error '--spades-coassembly-mode condition requires --group-column (--groupColumn)'
+    }
 
     if (group_column && !(group_column ==~ /^[A-Za-z_][A-Za-z0-9_.-]*$/)) {
         error '--group-column contains unsupported characters'

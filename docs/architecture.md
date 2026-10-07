@@ -263,8 +263,9 @@ checkpoint-manager provenance before global version collection.
 
 ### Assembly contract
 
-Each assembler subworkflow collects all filtered sample tuples, sorts them by
-sample ID for deterministic input order, and emits:
+In the default `spadesCoassemblyMode=global`, each assembler subworkflow
+collects all filtered sample tuples, sorts them by sample ID for deterministic
+input order, and emits:
 
 ```text
 tuple(meta, contigs)
@@ -279,6 +280,50 @@ meta = [
 
 The assembler metadata persists through contig filtering, coverage, binning,
 DAS Tool, and branch refinement.
+
+`spadesCoassemblyMode=condition` changes only `SPADES_ASSEMBLY`. The public
+dispatcher requires `groupColumn`; launcher preflight and staged input validators
+use `bin/spades_coassembly.py validate-input` to reject missing/empty groups,
+duplicate identities, and filesystem name collisions before reads are processed.
+`lib/SpadesCoassembly.groovy` defensively validates the read cohort and emits
+one `[meta, reads]` tuple per group, sorted by sample ID. SRA global input also
+validates its whole completed cohort before either assembler consumes it.
+
+Group task metadata contains `id=spades_coassembly_<group_id>`, `group` (the
+original normalized label), `group_id`, `sample_ids`, and
+`coassembly_mode=condition`. The safe ID is `group_` plus labels sanitized with
+`[^A-Za-z0-9._-]+ -> _` and truncated to 80 characters. Collision checks are
+case insensitive. This rule is shared by the Python helper and Groovy library.
+Independent group tuples invoke the same `SPADES` process; no dependency links
+one group to another. SPAdes options, version, resources, and conditional
+`--only-assembler` configuration are unchanged. MEGAHIT receives the same full
+filtered cohort as before.
+
+```text
+all non-host read tuples
+  |-- group A -> SPADES --\
+  |-- group B -> SPADES --+-> MERGE_SPADES_ASSEMBLIES -> METAQUAST_SPADES
+  `-- group N -> SPADES --/            |
+                                     `-> existing SPADES_BINNING -> refinement
+```
+
+The merge collects metadata and corresponding FASTA paths together, sorts the
+records by group, stages the files under `assemblies/`, and streams concatenation
+through `bin/spades_coassembly.py merge`. It prefixes each first header token
+with `<group_id>__` and rejects duplicate combined IDs; sequence content and
+header descriptions remain unchanged. The combined output retains
+`id=spades_coassembly`, `assembler=spades`, `branch=spades`, and all sample IDs,
+adding condition strategy, group column, and group labels to metadata. Its
+`spades_coassembly.contigs.fa` is the only assembly delivered to MetaQUAST and
+the existing binning/refinement branch. No group-specific downstream catalogs
+are created, and per-sample final MAG abundance is unchanged.
+
+Individual assemblies/logs/parameters/scaffolds/graphs are published under
+`02_mag_construction/spades/assembly/conditions/<group_id>/`. The combined
+FASTA, `spades_coassembly.contig_provenance.tsv` (combined/original ID, group,
+safe group ID, coassembly ID), and `spades_coassembly.assemblies.json` (including
+sample membership) are published in the existing assembly root. Workflows emit
+these provenance outputs explicitly; downstream inputs still use channels.
 
 ### Bin and catalog contracts
 
@@ -372,6 +417,17 @@ key with its most recent valid session UUID. The launcher supplies
 `-resume <UUID>` only when rerunning that same key; it never lets a sample,
 reconciliation, or global stage borrow another stage's cache identity.
 Checkpoint reconciliation remains the cross-invocation source of truth.
+For condition mode, only analysis keys change to `local_spades_condition` and
+`global_spades_condition`; preprocessing, discovery, and reconciliation keys
+remain unchanged. Group and strategy metadata become assembly/merge hash inputs.
+Under the existing results lock, the launcher binds
+`pipeline_info/spades_coassembly_strategy.json` to the strategy and condition
+group column. Incompatible reuse requires a fresh results root. Existing
+unmarked scientific outputs and old SRA success markers are considered global.
+The baseline finalizer now records `spades_coassembly_mode`; the launcher checks
+it before accepting prior success, while seal/cleanup validation additionally
+requires the combined assembly, provenance, assembly manifest, and every group
+FASTA in condition mode. Legacy global seals retain their existing inventory.
 `CHECK_SRA_CHECKPOINTS` and `PERSIST_SRA_CHECKPOINT` use `cache false` because
 the external checkpoint root is mutable state not represented in a Nextflow
 `path` input hash. This prevents `-resume` from replaying stale pending rows or
@@ -684,9 +740,11 @@ Profiles add independent dimensions:
 | `gpu` | GPU requests and verified GPU environments for COMEBin, SemiBin2, and Vamb only |
 
 The base production composition is `-profile <environment>,<runtime>`, for
-example `local,docker` or `hpc,apptainer`. The launcher always appends
-`disk_efficient` for SRA mode, also appends it for local-FASTQ mode when
-`--storage-constrained` is set, and appends `gpu` for `--enable-gpu`. Local GPU
+example `local,docker` or `hpc,apptainer`. The launcher appends
+`disk_efficient` for SRA mode except HPC condition coassembly, allowing SLURM
+to submit independent group assemblies with its existing queue settings.
+Explicit `--storage-constrained` appends it for either input mode/strategy;
+`gpu` is appended for `--enable-gpu`. Local GPU
 mode also selects `disk_efficient` so GPU-capable tasks do not contend for the
 same device. These profiles affect scheduling and execution environments, not
 channel dependencies.

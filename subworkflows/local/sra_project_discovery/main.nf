@@ -13,6 +13,7 @@ workflow SRA_PROJECT_DISCOVERY {
         file("${projectDir}/bin/resolve_sra_project.py", checkIfExists: true)
     )
     ch_selection = channel.value(file(params.sraSamples, checkIfExists: true))
+    ch_coassembly_helper = channel.value(file("${projectDir}/bin/spades_coassembly.py", checkIfExists: true))
 
     RESOLVE_SRA_PROJECT(
         channel.value(params.sraProject),
@@ -20,7 +21,8 @@ workflow SRA_PROJECT_DISCOVERY {
         channel.value(params.sraEmail ?: ''),
         ch_selection,
         channel.value(group_column),
-        ch_resolver
+        ch_resolver,
+        ch_coassembly_helper
     )
 
     VALIDATE_SRA_PROJECT(
@@ -33,7 +35,8 @@ workflow SRA_PROJECT_DISCOVERY {
         RESOLVE_SRA_PROJECT.out.metadata,
         ch_selection,
         channel.value(group_column),
-        ch_resolver
+        ch_resolver,
+        ch_coassembly_helper
     )
 
     emit:

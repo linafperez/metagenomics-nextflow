@@ -32,6 +32,9 @@ workflow SPADES_BRANCH {
 
     emit:
     assembly            = SPADES_ASSEMBLY.out.assembly
+    individual_assemblies = SPADES_ASSEMBLY.out.individual_assemblies
+    contig_provenance    = SPADES_ASSEMBLY.out.contig_provenance
+    assembly_manifest   = SPADES_ASSEMBLY.out.assembly_manifest
     metaquast_report    = SPADES_ASSEMBLY.out.metaquast_report
     filtered_contigs    = SPADES_BINNING.out.filtered_contigs
     raw_bins            = SPADES_BINNING.out.refined_bins

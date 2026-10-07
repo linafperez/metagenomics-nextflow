@@ -8,6 +8,7 @@ process CHECK_SAMPLESHEET {
     input:
     path samplesheet
     path validation_script
+    path coassembly_helper
     val group_column
 
     output:
@@ -16,7 +17,12 @@ process CHECK_SAMPLESHEET {
     tuple val("${task.process}"), val('python'), val('3.12'), emit: versions
 
     script:
+    def validate_groups = params.spadesCoassemblyMode == 'condition' ? """
+    python3 "${coassembly_helper}" validate-input --kind local \\
+        --input "${samplesheet}" --group-column "${group_column}"
+    """ : ''
     """
+    ${validate_groups}
     python3 "${validation_script}" \\
         --input "${samplesheet}" \\
         --output validated_samplesheet.csv \\

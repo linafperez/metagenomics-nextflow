@@ -1,0 +1,5 @@
+name: merge_spades_assemblies
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12.11

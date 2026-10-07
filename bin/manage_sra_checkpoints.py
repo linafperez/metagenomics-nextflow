@@ -938,7 +938,9 @@ def _inventory_regular_files(directory: Path, results_root: Path) -> list[dict[s
     return descriptions
 
 
-def build_scientific_inventory(results_dir: Path) -> dict[str, Any]:
+def build_scientific_inventory(
+    results_dir: Path, spades_coassembly_mode: str = "global"
+) -> dict[str, Any]:
     """Describe every durable scientific file and enforce required deliverables."""
     unresolved_root = Path(os.path.abspath(results_dir.expanduser()))
     if unresolved_root.is_symlink():
@@ -946,6 +948,8 @@ def build_scientific_inventory(results_dir: Path) -> dict[str, Any]:
     if not unresolved_root.is_dir():
         raise CheckpointError("scientific results root is missing")
     results_root = unresolved_root.resolve()
+    if spades_coassembly_mode not in {"global", "condition"}:
+        raise CheckpointError("global-success marker has an invalid SPAdes strategy")
     descriptions: list[dict[str, Any]] = []
     for root_name in SCIENTIFIC_RESULT_ROOTS:
         scientific_root = results_root / root_name
@@ -999,7 +1003,33 @@ def build_scientific_inventory(results_dir: Path) -> dict[str, Any]:
 
     required: dict[str, list[str]] = {}
     by_relative = {item["relative_path"]: item for item in descriptions}
-    for label, patterns in REQUIRED_SCIENTIFIC_ARTIFACTS.items():
+    required_patterns = dict(REQUIRED_SCIENTIFIC_ARTIFACTS)
+    if spades_coassembly_mode == "condition":
+        assembly_root = "02_mag_construction/spades/assembly"
+        required_patterns.update({
+            "spades_combined_contigs": (f"{assembly_root}/spades_coassembly.contigs.fa",),
+            "spades_contig_provenance": (f"{assembly_root}/spades_coassembly.contig_provenance.tsv",),
+            "spades_assembly_manifest": (f"{assembly_root}/spades_coassembly.assemblies.json",),
+        })
+        try:
+            manifest = json.loads((results_root / assembly_root / "spades_coassembly.assemblies.json").read_text(encoding="utf-8"))
+            if not isinstance(manifest, list) or not manifest:
+                raise ValueError("empty or invalid assembly manifest")
+            groups = set()
+            for item in manifest:
+                safe = item["group_id"]
+                coassembly = item["coassembly_id"]
+                if not re.fullmatch(r"group_[A-Za-z0-9._-]{1,80}", safe) or coassembly != f"spades_coassembly_{safe}":
+                    raise ValueError("unsafe or contradictory coassembly identifier")
+                if safe.lower() in groups:
+                    raise ValueError("duplicate condition coassembly identifier")
+                groups.add(safe.lower())
+                required_patterns[f"spades_condition_{safe}"] = (
+                    f"{assembly_root}/conditions/{safe}/{coassembly}.contigs.fa",
+                )
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise CheckpointError(f"cannot seal SPAdes condition assemblies: {exc}") from exc
+    for label, patterns in required_patterns.items():
         matches = sorted(
             relative
             for relative in by_relative
@@ -1204,7 +1234,7 @@ def validate_scientific_inventory(
     ):
         raise CheckpointError("sealed scientific output inventory has an invalid timestamp")
 
-    current = build_scientific_inventory(results_root)
+    current = build_scientific_inventory(results_root, success.get("spades_coassembly_mode", "global"))
     expected = {**current, "sealed_at_utc": sealed_at}
     if sealed != expected:
         raise CheckpointError(
@@ -1248,7 +1278,7 @@ def seal_global(args: argparse.Namespace) -> None:
         print("Scientific output inventory was already sealed and validated.")
         return
 
-    inventory = build_scientific_inventory(args.results_dir)
+    inventory = build_scientific_inventory(args.results_dir, success.get("spades_coassembly_mode", "global"))
     validate_final_mag_abundance(
         Path(str(inventory["results_root"])),
         args.checkpoint_manifest,

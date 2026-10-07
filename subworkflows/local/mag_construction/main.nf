@@ -48,6 +48,9 @@ workflow MAG_CONSTRUCTION {
     megahit_raw_bins    = MEGAHIT_BRANCH.out.raw_bins
     megahit_clean_mags  = MEGAHIT_BRANCH.out.selected_mags
     spades_assembly     = SPADES_BRANCH.out.assembly
+    spades_individual_assemblies = SPADES_BRANCH.out.individual_assemblies
+    spades_contig_provenance = SPADES_BRANCH.out.contig_provenance
+    spades_assembly_manifest = SPADES_BRANCH.out.assembly_manifest
     spades_metaquast    = SPADES_BRANCH.out.metaquast_report
     spades_raw_bins     = SPADES_BRANCH.out.raw_bins
     spades_clean_mags   = SPADES_BRANCH.out.selected_mags

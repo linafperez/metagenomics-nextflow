@@ -27,6 +27,7 @@ workflow LOCAL_INPUT {
     CHECK_SAMPLESHEET(
         ch_samplesheet,
         ch_samplesheet_validator,
+        channel.value(file("${projectDir}/bin/spades_coassembly.py", checkIfExists: true)),
         channel.value(group_column)
     )
 

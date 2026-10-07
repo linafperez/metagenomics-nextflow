@@ -207,16 +207,20 @@ class StaticProductionContractTests(unittest.TestCase):
             ]
             self.assertIn("cache false", process_body)
 
-    def test_sra_automatically_enables_disk_efficient_profile(self) -> None:
+    def test_sra_disk_scheduling_preserves_condition_concurrency_on_hpc(self) -> None:
         launcher = self.read("metagenomics_pipeline.sh")
         gate = launcher.index(
-            'if [[ "${storage_constrained}" == true || -n "${sra_project}"'
+            'if [[ "${storage_constrained}" == true || ( -n "${sra_project}"'
         )
         profile = launcher.index("profiles+=(disk_efficient)", gate)
         end = launcher.index("fi", profile)
         self.assertLess(gate, profile)
         self.assertLess(profile, end)
-        self.assertIn("SRA mode always does this", launcher)
+        self.assertIn(
+            '!( "${environment}" == hpc && "${spades_coassembly_mode}" == condition )',
+            launcher[gate:profile],
+        )
+        self.assertIn("Automatic for SRA except HPC condition coassembly", launcher)
         self.assertIn("executor.queueSize = 1", self.read("conf/disk_efficient.config"))
         self.assertIn(
             "local Conda/Apptainer/Singularity GPU mode requires CUDA_VISIBLE_DEVICES",
@@ -456,9 +460,11 @@ class StaticProductionContractTests(unittest.TestCase):
     def test_staged_resume_uses_the_last_uuid_for_the_same_invocation_key(self) -> None:
         launcher = self.read("metagenomics_pipeline.sh")
         self.assertIn("latest_resume_session()", launcher)
-        self.assertIn('latest_resume_session "${invocation_id}"', launcher)
+        self.assertIn('local resume_key="${invocation_id}"', launcher)
+        self.assertIn('resume_key="${invocation_id}_spades_condition"', launcher)
+        self.assertIn('latest_resume_session "${resume_key}"', launcher)
         self.assertIn('command+=(-resume "${resume_session}")', launcher)
-        self.assertIn('record_resume_session "${invocation_id}"', launcher)
+        self.assertIn('record_resume_session "${resume_key}"', launcher)
         self.assertIn("resume_key\\tsession_id\\trecorded_at_utc", launcher)
         self.assertNotIn("command+=(-resume)\n", launcher)
 

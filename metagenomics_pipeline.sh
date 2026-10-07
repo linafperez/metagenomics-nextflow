@@ -8,6 +8,7 @@ readonly PIPELINE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly DATABASE_PREPARER="${PIPELINE_ROOT}/bin/prepare_databases.sh"
 readonly CHECKPOINT_MANAGER="${PIPELINE_ROOT}/bin/manage_sra_checkpoints.py"
 readonly SRA_RESOLVER="${PIPELINE_ROOT}/bin/resolve_sra_project.py"
+readonly SPADES_COASSEMBLY_HELPER="${PIPELINE_ROOT}/bin/spades_coassembly.py"
 readonly STORAGE_MONITOR="${PIPELINE_ROOT}/bin/monitor_storage.py"
 readonly RESOURCE_SUMMARIZER="${PIPELINE_ROOT}/bin/summarize_resources.py"
 readonly SLURM_ACCOUNTING_COLLECTOR="${PIPELINE_ROOT}/bin/collect_slurm_accounting.py"
@@ -25,6 +26,7 @@ input_path=""
 sra_project=""
 sra_samples=""
 group_column=""
+spades_coassembly_mode="global"
 sra_checkpoint_dir=""
 sra_scratch_root=""
 sra_cache_dir=""
@@ -84,6 +86,9 @@ Input (select exactly one for --run):
   --sra-project ACCESSION  BioProject boundary (PRJNA/PRJEB/PRJDB).
   --sra-samples FILE       Explicit TSV of BioSample accessions to process.
   --group-column NAME      Optional categorical metadata column in the input table.
+  --spades-coassembly-mode MODE
+                           SPAdes strategy: global (default) or condition.
+                           condition requires --group-column.
 
 SRA lifecycle options:
   --sra-checkpoint-dir PATH  Required durable non-host-read checkpoint root.
@@ -99,7 +104,8 @@ Execution and accounting:
   --database-config FILE
   --work-dir PATH             Work root for local FASTQ mode.
   --outdir PATH               Results root (default: results).
-  --storage-constrained       Serialize local-FASTQ tasks; SRA mode always does this.
+  --storage-constrained       Serialize queued tasks in either input mode.
+                              Automatic for SRA except HPC condition coassembly.
   --enable-gpu                Enable verified COMEBin/SemiBin2/Vamb GPU paths.
   --gpu-accelerators N        GPUs requested by each enabled process (default: 1).
   --gpu-telemetry-interval N   GPU sampling interval in seconds (default: 10).
@@ -375,6 +381,10 @@ run_nextflow() {
     shift 3
     local telemetry_dir="${resource_root}/invocations/${run_token}_${invocation_id}"
     local started finished status exit_code resume_session=""
+    local resume_key="${invocation_id}"
+    if [[ "${spades_coassembly_mode}" == condition && ( "${stage}" == local || "${stage}" == sra-global ) ]]; then
+        resume_key="${invocation_id}_spades_condition"
+    fi
     local -a command=(nextflow -log "${telemetry_dir}/nextflow.log")
     if [[ -n "${database_config}" ]]; then
         command+=(-c "${database_config}")
@@ -382,12 +392,12 @@ run_nextflow() {
     command+=(run "${PIPELINE_ROOT}" -profile "$(IFS=,; printf '%s' "${profiles[*]}")")
     command+=(-name "metagenomics_${run_token}_${invocation_id}" -work-dir "${invocation_work}")
     if [[ "${resume}" == true ]]; then
-        resume_session="$(latest_resume_session "${invocation_id}")"
+        resume_session="$(latest_resume_session "${resume_key}")"
         if [[ -n "${resume_session}" ]]; then
             command+=(-resume "${resume_session}")
         else
             printf 'No prior session UUID for %s; starting this stage without -resume.\n' \
-                "${invocation_id}" >&2
+                "${resume_key}" >&2
         fi
     fi
     command+=(--executionStage "${stage}" --outdir "${outdir}" --telemetryDir "${telemetry_dir}")
@@ -408,7 +418,7 @@ run_nextflow() {
     finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     status="completed"
     [[ ${exit_code} -eq 0 ]] || status="failed"
-    record_resume_session "${invocation_id}" "${telemetry_dir}"
+    record_resume_session "${resume_key}" "${telemetry_dir}"
     append_registry "${run_token}_${invocation_id}" "${stage}" "${telemetry_dir}" \
         "${started}" "${finished}" "${status}" "${exit_code}"
     return "${exit_code}"
@@ -618,6 +628,8 @@ while (($#)); do
         --sra-samples=*) sra_samples="${1#*=}" ;;
         --group-column) require_value "$1" "${2:-}"; group_column="$2"; shift ;;
         --group-column=*) group_column="${1#*=}" ;;
+        --spades-coassembly-mode) require_value "$1" "${2:-}"; spades_coassembly_mode="$2"; shift ;;
+        --spades-coassembly-mode=*) spades_coassembly_mode="${1#*=}" ;;
         --sra-checkpoint-dir) require_value "$1" "${2:-}"; sra_checkpoint_dir="$2"; shift ;;
         --sra-checkpoint-dir=*) sra_checkpoint_dir="${1#*=}" ;;
         --sra-scratch-dir) require_value "$1" "${2:-}"; sra_scratch_root="$2"; shift ;;
@@ -662,7 +674,7 @@ while (($#)); do
         -profile|-profile=*|-work-dir|-work-dir=*|-w|-w=*|-name|-name=*|-log|-log=*|-resume|-resume=*|-params-file|-params-file=*|-c|-c=*|-config|-config=*)
             die "${1%%=*} is reserved by the staged launcher"
             ;;
-        --executionStage|--executionStage=*|--telemetryDir|--telemetryDir=*|--sraStateDir|--sraStateDir=*|--sraManifest|--sraManifest=*|--sraSampleId|--sraSampleId=*|--sraCheckpointManifest|--sraCheckpointManifest=*|--sraSampleMetadata|--sraSampleMetadata=*|--sraRequireComplete|--sraRequireComplete=*|--sraContainerOptions|--sraContainerOptions=*|--sraProject|--sraProject=*|--sraSamples|--sraSamples=*|--groupColumn|--groupColumn=*|--sraCheckpointDir|--sraCheckpointDir=*|--sraScratchDir|--sraScratchDir=*|--sraCacheDir|--sraCacheDir=*|--sraTempDir|--sraTempDir=*|--enableGpu|--enableGpu=*|--gpuAccelerators|--gpuAccelerators=*|--gpuTelemetryInterval|--gpuTelemetryInterval=*|--gpuContainerOptions|--gpuContainerOptions=*|--slurmGpuGres|--slurmGpuGres=*)
+        --executionStage|--executionStage=*|--telemetryDir|--telemetryDir=*|--sraStateDir|--sraStateDir=*|--sraManifest|--sraManifest=*|--sraSampleId|--sraSampleId=*|--sraCheckpointManifest|--sraCheckpointManifest=*|--sraSampleMetadata|--sraSampleMetadata=*|--sraRequireComplete|--sraRequireComplete=*|--sraContainerOptions|--sraContainerOptions=*|--sraProject|--sraProject=*|--sraSamples|--sraSamples=*|--groupColumn|--groupColumn=*|--spadesCoassemblyMode|--spadesCoassemblyMode=*|--sraCheckpointDir|--sraCheckpointDir=*|--sraScratchDir|--sraScratchDir=*|--sraCacheDir|--sraCacheDir=*|--sraTempDir|--sraTempDir=*|--enableGpu|--enableGpu=*|--gpuAccelerators|--gpuAccelerators=*|--gpuTelemetryInterval|--gpuTelemetryInterval=*|--gpuContainerOptions|--gpuContainerOptions=*|--slurmGpuGres|--slurmGpuGres=*)
             die "${1%%=*} is an internal pipeline parameter managed by the launcher"
             ;;
         *) forwarded_args+=("$1") ;;
@@ -698,6 +710,10 @@ fi
     || die "SRA mode requires both --sra-project and --sra-samples"
 [[ -z "${group_column}" || "${group_column}" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]] \
     || die "--group-column contains unsupported characters"
+[[ "${spades_coassembly_mode}" == global || "${spades_coassembly_mode}" == condition ]] \
+    || die "--spades-coassembly-mode must be global or condition"
+[[ "${spades_coassembly_mode}" != condition || -n "${group_column}" ]] \
+    || die "--spades-coassembly-mode condition requires --group-column"
 [[ "${environment}" != hpc || "${runtime}" != docker ]] || die "Docker is not supported by the SLURM launcher"
 [[ -z "${database_config}" || -r "${database_config}" ]] || die "database configuration is not readable: ${database_config}"
 [[ "${gpu_accelerators}" =~ ^[1-9][0-9]*$ ]] || die "--gpu-accelerators must be a positive integer"
@@ -719,16 +735,25 @@ if [[ "${environment}" == local && "${enable_gpu}" == true && "${runtime}" != do
 fi
 
 profiles=("${environment}" "${runtime}")
-if [[ "${storage_constrained}" == true || -n "${sra_project}" || ( "${enable_gpu}" == true && "${environment}" == local ) ]]; then
+if [[ "${storage_constrained}" == true || ( -n "${sra_project}" && !( "${environment}" == hpc && "${spades_coassembly_mode}" == condition ) ) || ( "${enable_gpu}" == true && "${environment}" == local ) ]]; then
     # The local executor does not schedule the accelerator directive.  A queue
     # size of one prevents independently ready GPU tools from contending for
-    # the same device; SRA also serializes independent global branches to keep
-    # their large temporary trees from overlapping.  SLURM GPU allocation uses GRES.
+    # the same device; default SRA also serializes independent global branches.
+    # Condition coassemblies on SLURM use the configured queue unless the user
+    # explicitly requests --storage-constrained. SLURM GPU allocation uses GRES.
     profiles+=(disk_efficient)
 fi
 [[ "${enable_gpu}" == true ]] && profiles+=(gpu)
 
 if [[ "${dry_run}" == false ]]; then
+    if [[ "${spades_coassembly_mode}" == condition ]]; then
+        check_python
+        condition_input="${input_path:-${sra_samples}}"
+        condition_kind="local"
+        [[ -n "${sra_project}" ]] && condition_kind="sra"
+        python3 "${SPADES_COASSEMBLY_HELPER}" validate-input \
+            --input "${condition_input}" --kind "${condition_kind}" --group-column "${group_column}"
+    fi
     check_nextflow
     check_runtime
 fi
@@ -753,11 +778,13 @@ if [[ "${dry_run}" == false ]]; then
     trap 'release_run_locks' EXIT
     trap 'exit 130' INT TERM
     acquire_run_lock "${resource_root}/.metagenomics_run.lock" results
+    python3 "${SPADES_COASSEMBLY_HELPER}" bind-strategy \
+        --results-dir "${outdir}" --mode "${spades_coassembly_mode}" --group-column "${group_column}"
 fi
 
 declare -a common_nextflow_args=("${forwarded_args[@]}")
 common_nextflow_args+=(--enableGpu "${enable_gpu}" --gpuAccelerators "${gpu_accelerators}" \
-    --gpuTelemetryInterval "${gpu_telemetry_interval}")
+    --gpuTelemetryInterval "${gpu_telemetry_interval}" --spadesCoassemblyMode "${spades_coassembly_mode}")
 [[ -n "${group_column}" ]] && common_nextflow_args+=(--groupColumn "${group_column}")
 [[ -n "${slurm_gpu_gres}" ]] && common_nextflow_args+=(--slurmGpuGres "${slurm_gpu_gres}")
 if [[ "${enable_gpu}" == true && "${runtime}" == docker ]]; then
@@ -907,13 +934,13 @@ if [[ -f "${state_dir}/sra_global_success.json" ]]; then
         || die "global-success marker exists but the frozen SRA manifest is missing"
     [[ -f "${checkpoint_manifest}" ]] \
         || die "global-success marker exists but the checkpoint manifest is missing"
-    if ! python3 - "${state_dir}/sra_global_success.json" "${sra_project}" <<'PY'
+    if ! python3 - "${state_dir}/sra_global_success.json" "${sra_project}" "${spades_coassembly_mode}" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1], encoding='utf-8'))
-raise SystemExit(0 if data.get('status') == 'complete' and data.get('project_accession') == sys.argv[2] else 1)
+raise SystemExit(0 if data.get('status') == 'complete' and data.get('project_accession') == sys.argv[2] and data.get('spades_coassembly_mode', 'global') == sys.argv[3] else 1)
 PY
     then
-        die "global-success marker does not match ${sra_project} or is not complete"
+        die "global-success marker does not match ${sra_project}/SPAdes strategy or is not complete"
     fi
     seal_sra_global_outputs "${checkpoint_manifest}" "${state_dir}/sra_global_success.json"
     cleanup_sra_checkpoints "${checkpoint_manifest}" "${state_dir}/sra_global_success.json"

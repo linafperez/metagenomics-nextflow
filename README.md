@@ -82,8 +82,10 @@ concurrency.
    `--very-sensitive-local --phred33` against an externally supplied
    GRCh38.p14 index and retains paired non-host reads. FastQC is diagnostic and
    does not create an automatic pass/fail branch.
-2. **Assembly.** Reads from every sample are coassembled separately with
-   MEGAHIT (`meta-large`, 1,000 bp assembly minimum) and metaSPAdes (`--meta`).
+2. **Assembly.** Reads from every sample are coassembled with
+   MEGAHIT (`meta-large`, 1,000 bp assembly minimum). metaSPAdes (`--meta`)
+   defaults to the same global cohort, with optional condition coassembly
+   followed by a single combined assembly (see below).
    The same MetaQUAST module evaluates both assemblies. Before binning, a common
    1,500 bp downstream contig threshold is applied by default.
 3. **Binning.** CoverM creates reusable BAM, MetaBAT2 depth, and Vamb abundance
@@ -124,6 +126,104 @@ concurrency.
    FastQC, fastp, Bowtie2, MEGAHIT, QUAST/MetaQUAST, CheckM2, and GTDB-Tk.
    Outputs from tools without a dependable parser remain available in their
    native result directories and are not claimed as automatically parsed.
+
+### SPAdes coassembly strategies
+
+`--spades-coassembly-mode global` is the default and preserves the existing
+single metaSPAdes execution with all paired non-host reads. Omitting this
+parameter has the same behavior. MEGAHIT always retains its global coassembly.
+
+```text
+GLOBAL: all samples -> one metaSPAdes -> SPAdes downstream
+
+CONDITION:
+samples
+  +-- group A -> metaSPAdes A --\
+  +-- group B -> metaSPAdes B --+--> merged contigs --> SPAdes downstream
+  +-- group N -> metaSPAdes N --/
+```
+
+`--spades-coassembly-mode condition` requires `--group-column NAME` for either
+input mode. After host removal, pairs are grouped by the existing normalized
+`meta.group` value and sorted by sample ID within each group. Group labels are
+opaque strings; any number of categories is supported. Missing columns, empty
+groups, ambiguous/duplicate sample identities, and sanitized filename
+collisions fail before acquisition or preprocessing. Existing input validators
+trim surrounding whitespace from values; the normalized original label is
+preserved in metadata and provenance without biological interpretation.
+
+Every group invokes the existing SPAdes module independently with its unchanged
+version, `--meta`, resources (32 CPUs, 1,800 GB, 14 days), and
+`spades_only_assembler` behavior. BayesHammer runs when that flag is `false`
+(the default). Smaller individual coassemblies can reduce metaSPAdes peak RAM;
+the reduction is dataset-dependent and is not necessarily proportional to
+sample count. Concurrent groups can still have substantial aggregate RAM and
+disk demand.
+
+`MERGE_SPADES_ASSEMBLIES` waits for all groups and concatenates their contigs
+in deterministic group order, preserving sequence order within each FASTA.
+It does not reassemble, deduplicate, or filter sequences. Filesystem identifiers
+are `group_` plus the label with runs of characters outside `[A-Za-z0-9._-]`
+replaced by `_`, truncated to 80 characters. Distinct labels that collide after
+this conversion (including case differences) are rejected. Each contig ID is
+prefixed with `<group_id>__`, and duplicate combined IDs also cause failure.
+The remainder of each FASTA description is preserved.
+
+Outputs stay under `02_mag_construction/spades/assembly/`:
+
+- `conditions/<group_id>/spades_coassembly_<group_id>.contigs.fa`, with each
+  group's SPAdes log, parameters, and optional scaffolds/graph;
+- `spades_coassembly.contigs.fa`, the single combined FASTA consumed by the
+  existing SPAdes downstream contract (`meta.id=spades_coassembly`);
+- `spades_coassembly.contig_provenance.tsv`, containing `combined_contig_id`,
+  `original_contig_id`, `group`, `group_id`, and `coassembly_id`;
+- `spades_coassembly.assemblies.json`, recording group labels, safe identifiers,
+  coassembly IDs, sample membership, and staged source paths. Published
+  individual FASTAs are in `conditions/`; staged paths describe merge inputs.
+
+MetaQUAST, contig filtering, CoverM, all four binners, DAS Tool, branch refinement,
+and downstream catalog integration run once on the combined SPAdes assembly.
+The final common MAG catalog and CoverM abundance per individual sample are
+unchanged. Contig origin does not assign a biological condition to a MAG.
+
+The launcher binds each results root to its strategy in
+`pipeline_info/spades_coassembly_strategy.json` and rejects switching strategy
+or the condition group column in that root. Compare strategies using separate
+results roots. Legacy results/markers without a strategy are treated as
+`global`. Local/global analysis resume keys become `local_spades_condition` /
+`global_spades_condition` in condition mode; global mode and SRA discovery,
+reconciliation, and per-sample keys retain their existing names. Condition
+metadata and merge inputs also participate in Nextflow task hashes. SRA success
+markers record the strategy, and sealing requires the combined FASTA, provenance,
+manifest, and every individual group FASTA before checkpoint cleanup.
+
+For SRA condition mode on SLURM, the launcher uses the configured SLURM queue
+so independent group assemblies can be submitted concurrently. Explicit
+`--storage-constrained` restores queue-size-one scheduling. Global SRA and local
+SRA retain their existing disk scheduling. Sequential SRA acquisition and
+checkpoint validation/cleanup are unchanged in both strategies.
+
+The versioned `assets/raw/test_metagenomic_samples.tsv` selects exactly eight
+BioSamples from PRJNA782492 (four PD and four CT). It is an optional HPC test
+selection, never the default. For example, after configuring site paths:
+
+```bash
+for strategy in global condition; do
+    ./metagenomics_pipeline.sh --hpc --apptainer --run \
+        --database-config /shared/db/metagenomics_databases.config \
+        --sra-project PRJNA782492 \
+        --sra-samples assets/raw/test_metagenomic_samples.tsv \
+        --group-column group --spades-coassembly-mode "$strategy" \
+        --sra-checkpoint-dir "/shared/checkpoints/PRJNA782492_test_${strategy}" \
+        --sra-scratch-dir "/scratch/project/PRJNA782492_test_${strategy}" \
+        --outdir "/shared/project/PRJNA782492_test_${strategy}/results" \
+        --slurm_account ACCOUNT --slurm_queue PARTITION --slurm_qos QOS
+done
+```
+
+These commands are for later HPC execution; adding the TSV does not download
+reads. Direct Nextflow uses the internal spelling `--spadesCoassemblyMode`
+and `--groupColumn`; the launcher accepts the hyphenated options above.
 
 ## Pinned software
 
@@ -662,8 +762,8 @@ Production examples:
     --slurm_account ACCOUNT --slurm_queue PARTITION --slurm_qos QOS
 ```
 
-BioProject mode requires explicit, external checkpoint and scratch roots. It
-automatically serializes queued tasks to reduce overlapping disk demand:
+BioProject mode requires explicit, external checkpoint and scratch roots. Its
+default global strategy serializes queued tasks to reduce overlapping disk demand:
 
 ```bash
 ./metagenomics_pipeline.sh --hpc --apptainer --run \
@@ -686,8 +786,9 @@ SRA/results paths reject single or double quotes, backticks, dollar signs,
 backslashes, and line breaks. Container-backed SRA storage paths additionally
 reject whitespace, comma, and colon so bind arguments remain unambiguous.
 
-The launcher always selects the `disk_efficient` profile for BioProject mode;
-`--storage-constrained` selects the same profile for local-FASTQ mode. It sets
+The launcher selects the `disk_efficient` profile for BioProject mode except
+condition coassembly on SLURM. `--storage-constrained` explicitly selects the
+same profile in either input mode and either strategy. It sets
 the executor queue size to one without altering scientific dependencies,
 inputs, or parameters, and prevents independent large tasks such as MEGAHIT
 and metaSPAdes from occupying disk concurrently. It is a scheduling control,
@@ -806,6 +907,7 @@ nextflow run . -profile hpc,apptainer \
 | `--sra-project` | unset | BioProject membership boundary; requires `--sra-samples` |
 | `--sra-samples` | required with `--sra-project` | Explicit TSV of selected BioSample accessions |
 | `--group-column` | unset | Optional input column whose categorical value is propagated as `group` |
+| `--spades-coassembly-mode` | `global` | `global` or `condition`; condition requires `--group-column` and merges group assemblies before one SPAdes downstream branch |
 | `--sra-checkpoint-dir` | required in SRA mode | External durable non-host read checkpoint root |
 | `--sra-scratch-dir` | required in SRA mode | External disposable acquisition and work root |
 | `--sra-cache-dir` | `<sra-scratch-dir>/sra-cache` | SRA `prefetch` cache |
@@ -814,7 +916,7 @@ nextflow run . -profile hpc,apptainer \
 | `--sra-platforms` | `ILLUMINA,BGISEQ` | SRA discovery platform allowlist |
 | `--sra-max-size` | `u` | Maximum size value passed to `prefetch` |
 | `--keep-sra-checkpoints` | false | Retain checkpoint FASTQ pairs after validated global success |
-| `--storage-constrained` | false (automatic for SRA) | Select queue-size-one disk scheduling for local FASTQ mode; SRA always selects it |
+| `--storage-constrained` | false (automatic for SRA except HPC condition) | Select queue-size-one disk scheduling; can explicitly serialize HPC condition tasks |
 | `--resource-sample-interval` | `60` | Storage sampling interval in seconds |
 | `--resource-database-root` | unset | Optional database tree included in storage accounting |
 | `--enable-gpu` | false | Enable only COMEBin, SemiBin2, and Vamb GPU paths |

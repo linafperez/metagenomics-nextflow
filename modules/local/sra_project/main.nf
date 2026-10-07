@@ -12,6 +12,7 @@ process RESOLVE_SRA_PROJECT {
     path selection_file
     val group_column
     path resolver
+    path coassembly_helper
 
     output:
     path 'sra_project_manifest.tsv', emit: run_manifest
@@ -32,8 +33,13 @@ process RESOLVE_SRA_PROJECT {
     }
     def email_arg = contact_email ? "--email '${contact_email}'" : ''
     def group_arg = group_column ? "--group-column '${group_column}'" : ''
+    def validate_groups = params.spadesCoassemblyMode == 'condition' ? """
+    python3 "${coassembly_helper}" validate-input --kind sra \\
+        --input "${selection_file}" --group-column "${group_column}"
+    """ : ''
 
     """
+    ${validate_groups}
     python3 "${resolver}" \
         "${project_accession}" \
         --output-dir . \
@@ -63,13 +69,19 @@ process VALIDATE_SRA_PROJECT {
     path selection_file
     val group_column
     path resolver
+    path coassembly_helper
 
     output:
     path 'sra_project_manifest.validated', emit: sentinel
     tuple val("${task.process}"), val('sra_project_resolver'), val('2.0.0'), emit: versions
 
     script:
+    def validate_groups = params.spadesCoassemblyMode == 'condition' ? """
+    python3 "${coassembly_helper}" validate-input --kind sra \\
+        --input "${selection_file}" --group-column "${group_column}"
+    """ : ''
     """
+    ${validate_groups}
     mkdir frozen_manifest
     cp "${run_manifest}" "${sample_manifest}" "${exclusions}" "${summary}" "${runinfo}" "${requested}" "${metadata}" frozen_manifest/
     python3 "${resolver}" --validate-existing frozen_manifest \

@@ -130,6 +130,7 @@ with open('sra_global_success.json', 'w', encoding='utf-8') as handle:
     json.dump({
         'schema_version': 2,
         'project_accession': '${project_accession}',
+        'spades_coassembly_mode': '${params.spadesCoassemblyMode}',
         'status': 'complete',
         'completed_at_utc': datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z'),
         'checkpoint_manifest': describe('${checkpoint_manifest}', '${durable_checkpoint_manifest_path}'),

@@ -30,6 +30,14 @@ workflow SRA_GLOBAL {
         ])
     }
 
+    if (params.spadesCoassemblyMode == 'condition') {
+        // Defensive cohort validation before either assembler can consume it.
+        ch_filtered_reads = ch_filtered_reads.toList().flatMap { records ->
+            SpadesCoassembly.conditionInputs(records)
+            records.collect { record -> tuple(record[0], record[1]) }
+        }
+    }
+
     // Reports are already persisted under the durable checkpoint root.
     // Read them directly instead of reparsing JSON embedded in the TSV manifest.
     ch_persisted_reports = channel
