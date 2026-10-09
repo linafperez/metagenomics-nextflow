@@ -135,8 +135,11 @@ class StaticProductionContractTests(unittest.TestCase):
         command = module[module.index('    """\n    set -euo pipefail') :]
         mkdir = re.search(r"(?m)^\s*mkdir -p ([^\n]+)$", command)
         self.assertIsNotNone(mkdir)
-        for directory in ('bam', '"${prefix}.comebin"', '"${prefix}.comebin.bins"'):
-            self.assertIn(directory, mkdir.group(1))
+        self.assertEqual(
+            mkdir.group(1),
+            'bam "${prefix}.comebin" "${prefix}.comebin.bins"',
+        )
+        self.assertNotIn('mkdir -p bam "${prefix}.comebin.bins"', command)
         self.assertLess(mkdir.start(), command.index("run_comebin.sh"))
         self.assertIn('-o "${prefix}.comebin"', command)
         self.assertIn('NATIVE_BINS="${prefix}.comebin/comebin_res/comebin_res_bins"', command)
