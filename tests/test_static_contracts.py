@@ -130,6 +130,12 @@ class StaticProductionContractTests(unittest.TestCase):
             self.assertRegex(declarations, rf"(?m)^process\s+{process}\s*\{{")
             self.assertIn(process, configs)
 
+    def test_semibin2_uncompressed_output_option_matches_pinned_cli(self) -> None:
+        module = self.read("modules/core/semibin2/main.nf")
+        self.assertIn("SemiBin2 single_easy_bin", module)
+        self.assertIn("--compression none", module)
+        self.assertNotIn("--output-compression", module)
+
     def test_compression_chain_and_checkpoint_contract(self) -> None:
         self.assertIn(".fastq.gz", self.read("modules/core/fastp/main.nf"))
         bowtie = self.read("modules/core/bowtie2/main.nf")

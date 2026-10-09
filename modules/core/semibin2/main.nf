@@ -120,7 +120,7 @@ PY
         -b ${bam_args} \
         -t ${task.cpus} \
         --engine ${compute_engine} \
-        --output-compression none \
+        --compression none \
         -o "${prefix}.semibin2" \
         ${args} \
         2> >(tee "${prefix}.semibin2.log" >&2)
