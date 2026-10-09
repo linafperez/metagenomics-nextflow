@@ -130,6 +130,28 @@ class StaticProductionContractTests(unittest.TestCase):
             self.assertRegex(declarations, rf"(?m)^process\s+{process}\s*\{{")
             self.assertIn(process, configs)
 
+    def test_comebin_output_directory_exists_before_tool_invocation(self) -> None:
+        module = self.read("modules/core/comebin/main.nf")
+        command = module[module.index('    """\n    set -euo pipefail') :]
+        mkdir = re.search(r"(?m)^\s*mkdir -p ([^\n]+)$", command)
+        self.assertIsNotNone(mkdir)
+        for directory in ('bam', '"${prefix}.comebin"', '"${prefix}.comebin.bins"'):
+            self.assertIn(directory, mkdir.group(1))
+        self.assertLess(mkdir.start(), command.index("run_comebin.sh"))
+        self.assertIn('-o "${prefix}.comebin"', command)
+        self.assertIn('NATIVE_BINS="${prefix}.comebin/comebin_res/comebin_res_bins"', command)
+        self.assertIn('BINS_DIR="${prefix}.comebin.bins"', command)
+        self.assertIn('MAP_FILE="${prefix}.comebin.contigs2bin.tsv"', command)
+        outputs = module.split("    output:\n", 1)[1].split("    when:", 1)[0]
+        for declaration in (
+            "path('*.bins/*.{fa,fna,fasta}', arity: '1..*'), emit: bins",
+            "path('*.contigs2bin.tsv'), emit: contigs2bin",
+            "path('*.comebin'), optional: true, emit: native_outputs",
+            "path('*.comebin.log'), emit: log",
+            "path('*.gpu_metrics.tsv'), optional: true, emit: gpu_metrics",
+        ):
+            self.assertIn(declaration, outputs)
+
     def test_semibin2_uncompressed_output_option_matches_pinned_cli(self) -> None:
         module = self.read("modules/core/semibin2/main.nf")
         self.assertIn("SemiBin2 single_easy_bin", module)

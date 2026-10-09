@@ -112,7 +112,7 @@ PY
     """
     set -euo pipefail
 
-    mkdir -p bam "${prefix}.comebin.bins"
+    mkdir -p bam "${prefix}.comebin" "${prefix}.comebin.bins"
     ${bam_links}
     ${gpu_guard}
     ${gpu_monitor}
