@@ -95,7 +95,7 @@ process COVERM_CONTIG {
         BEGIN { FS=OFS="\t" }
         NR == 1 {
             if (NF != expected) {
-                printf "Unexpected CoverM mean-depth column count: %d (expected %d)\n", NF, expected > "/dev/stderr"
+                print "Unexpected CoverM mean-depth column count: " NF " (expected " expected ")" > "/dev/stderr"
                 exit 1
             }
             print header
