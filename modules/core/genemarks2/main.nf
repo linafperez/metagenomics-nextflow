@@ -26,17 +26,24 @@ process GENEMARKS2 {
     """
     set -euo pipefail
 
-    if [[ ! -d "${genemark_home}" ]]; then
+    NF_MAG="${mag}"
+    NF_CPUS="${task.cpus}"
+    NF_PREFIX="${prefix}"
+    NF_MAG_ID="${mag_id}"
+    NF_GENEMARK_HOME="${genemark_home}"
+    NF_GENEMARK_KEY="${genemark_key}"
+
+    if [[ ! -d "\${NF_GENEMARK_HOME}" ]]; then
         echo "GeneMarkS-2 home must be a directory" >&2
         exit 1
     fi
-    if [[ ! -s "${genemark_key}" ]]; then
+    if [[ ! -s "\${NF_GENEMARK_KEY}" ]]; then
         echo "GeneMarkS-2 license key is missing or empty" >&2
         exit 1
     fi
 
     mkdir -p genemark_install genemark_user
-    cp -aL "${genemark_home}/." genemark_install/
+    cp -aL "\${NF_GENEMARK_HOME}/." genemark_install/
 
     gms2_script=\$(find genemark_install -type f -name 'gms2.pl' -print -quit)
     if [[ -z "\${gms2_script}" ]]; then
@@ -47,7 +54,7 @@ process GENEMARKS2 {
     gms2_dir=\$(dirname "\${gms2_script}")
     chmod u+x "\${gms2_script}" "\${gms2_dir}"/* 2>/dev/null || true
 
-    install -m 600 "${genemark_key}" genemark_user/.gmhmmp2_key
+    install -m 600 "\${NF_GENEMARK_KEY}" genemark_user/.gmhmmp2_key
     cp genemark_user/.gmhmmp2_key genemark_user/.gm_key
 
     GENEMARK_USER_DIR="\$PWD/genemark_user"
@@ -56,14 +63,18 @@ process GENEMARKS2 {
     export LC_ALL=C
     export LANG=C
 
-    gms2_version=\$(perl "\${gms2_script}" --version 2>&1 || true)
-    if ! grep -Eq '(^|[^0-9])1\.15([^0-9]|\$)' <<< "\${gms2_version}"; then
-        detected_version=\$(tr '\n' ' ' <<< "\${gms2_version}" | head -c 200)
+    gms2_usage=\$(perl "\${gms2_script}" 2>&1 || true)
+    detected_version=\$(
+        grep '^Version:' <<< "\${gms2_usage}" |
+        head -n 1 |
+        cut -d' ' -f2 || true
+    )
+    if [[ "\${detected_version}" != 1.15* ]]; then
         echo "GeneMarkS-2 1.15 is required; detected: \${detected_version:-unknown}" >&2
         exit 1
     fi
 
-    mag_path=\$(readlink -f "${mag}")
+    mag_path=\$(readlink -f "\${NF_MAG}")
     output_root="\$PWD"
 
     echo "Running GeneMarkS-2 gene prediction"
@@ -72,16 +83,16 @@ process GENEMARKS2 {
     perl "\${gms2_script}" \
         --seq "\${mag_path}" \
         --genome-type bacteria \
-        --threads ${task.cpus} \
+        --threads "\${NF_CPUS}" \
         --format gff \
-        --output "\${output_root}/${prefix}.raw.gff" \
-        --fnn "\${output_root}/${prefix}.raw.fnn" \
-        --faa "\${output_root}/${prefix}.raw.faa" \
+        --output "\${output_root}/\${NF_PREFIX}.raw.gff" \
+        --fnn "\${output_root}/\${NF_PREFIX}.raw.fnn" \
+        --faa "\${output_root}/\${NF_PREFIX}.raw.faa" \
         ${args} \
-        > "\${output_root}/${prefix}.genemarks2.log" 2>&1
+        > "\${output_root}/\${NF_PREFIX}.genemarks2.log" 2>&1
     cd "\${output_root}"
 
-    awk -v MAG='${mag_id}' '
+    awk -v MAG="\${NF_MAG_ID}" '
         /^>/ {
             gene=\$1
             sub(/^>/, "", gene)
@@ -94,9 +105,9 @@ process GENEMARKS2 {
             next
         }
         { print }
-    ' "${prefix}.raw.faa" > "${prefix}.proteins.faa"
+    ' "\${NF_PREFIX}.raw.faa" > "\${NF_PREFIX}.proteins.faa"
 
-    awk -v MAG='${mag_id}' '
+    awk -v MAG="\${NF_MAG_ID}" '
         /^>/ {
             gene=\$1
             sub(/^>/, "", gene)
@@ -109,9 +120,9 @@ process GENEMARKS2 {
             next
         }
         { print }
-    ' "${prefix}.raw.fnn" > "${prefix}.cds.fna"
+    ' "\${NF_PREFIX}.raw.fnn" > "\${NF_PREFIX}.cds.fna"
 
-    awk -v MAG='${mag_id}' '
+    awk -v MAG="\${NF_MAG_ID}" '
         BEGIN { FS=OFS="\\t"; feature_number=0 }
         /^#/ { print; next }
         NF < 9 { print; next }
@@ -139,13 +150,13 @@ process GENEMARKS2 {
             \$9=\$9 "protein_id=" protein_id ";mag_id=" MAG
             print
         }
-    ' "${prefix}.raw.gff" > "${prefix}.genes.gff"
+    ' "\${NF_PREFIX}.raw.gff" > "\${NF_PREFIX}.genes.gff"
 
-    test -s "${prefix}.proteins.faa"
-    test -s "${prefix}.cds.fna"
-    test -s "${prefix}.genes.gff"
+    test -s "\${NF_PREFIX}.proteins.faa"
+    test -s "\${NF_PREFIX}.cds.fna"
+    test -s "\${NF_PREFIX}.genes.gff"
     rm -rf -- genemark_install genemark_user
-    rm -f -- "${prefix}.raw.faa" "${prefix}.raw.fnn" "${prefix}.raw.gff"
+    rm -f -- "\${NF_PREFIX}.raw.faa" "\${NF_PREFIX}.raw.fnn" "\${NF_PREFIX}.raw.gff"
     """
 
 }
