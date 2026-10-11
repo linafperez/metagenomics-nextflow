@@ -77,7 +77,7 @@ process DASTOOL {
         exit 1
     fi
     test -s "${prefix}_DASTool_summary.tsv"
-    test -s "${prefix}_DASTool_contigs2bin.tsv"
+    test -s "${prefix}_DASTool_contig2bin.tsv"
     test -s "${prefix}_allBins.eval"
     test -s "${prefix}_DASTool.log"
 

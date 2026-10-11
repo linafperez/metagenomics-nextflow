@@ -154,6 +154,20 @@ class StaticProductionContractTests(unittest.TestCase):
         self.assertIn(nonempty_check, validation)
         self.assertIn("exit 1", validation.split(nonempty_check, 1)[1].split("\n    fi", 1)[0])
 
+    def test_dastool_validates_pinned_contig2bin_filename(self) -> None:
+        module = self.read("modules/core/dastool/main.nf")
+        self.assertNotIn('test -s "${prefix}_DASTool_contigs2bin.tsv"', module)
+        validations = re.findall(r'(?m)^\s*test -s "([^"]+)"$', module)
+        self.assertEqual(
+            validations,
+            [
+                "${prefix}_DASTool_summary.tsv",
+                "${prefix}_DASTool_contig2bin.tsv",
+                "${prefix}_allBins.eval",
+                "${prefix}_DASTool.log",
+            ],
+        )
+
     def test_dastool_command_and_output_contract_are_preserved(self) -> None:
         module = self.read("modules/core/dastool/main.nf")
         command = module.split("    DAS_Tool ", 1)[1].split("        ${args}", 1)[0]
