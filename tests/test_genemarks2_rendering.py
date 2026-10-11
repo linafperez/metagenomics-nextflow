@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 BASH = os.environ.get("BASH") or (shutil.which("bash") if os.name != "nt" else None)
+AWK = os.environ.get("AWK") or shutil.which("awk")
 GROOVY = shutil.which("groovy")
 GROOVY_CLASSPATH = os.environ.get("GROOVY_CLASSPATH")
 JAVA = shutil.which("java")
@@ -66,7 +67,32 @@ def version_check(script: str) -> str:
     return "    gms2_usage=" + script.split("    gms2_usage=", 1)[1].split("    mag_path=", 1)[0]
 
 
+def gff_awk_program() -> str:
+    match = re.search(
+        r"(?m)^    awk -v MAG=[^\n]+ '\n([^']*)\n    ' \"\$\{NF_PREFIX\}\.raw\.gff\"",
+        render_script(),
+    )
+    if match is None:
+        raise AssertionError("GeneMarkS-2 GFF AWK program not found")
+    return match[1]
+
+
 class GeneMarkS2StaticTests(unittest.TestCase):
+    def test_gff_loop_avoids_builtin_index_and_preserves_annotations(self) -> None:
+        program = gff_awk_program()
+        self.assertNotRegex(program, r"for\s*\(\s*index\s*=")
+        self.assertNotRegex(program, r"parts\s*\[\s*index\s*\]")
+        for expected in (
+            "for (field_idx=1; field_idx<=count; field_idx++) {",
+            "item=parts[field_idx]",
+            'count=split($9, parts, ";")',
+            "if (item ~ /^gene_id[[:space:]=]/)",
+            "if (item ~ /^ID=/)",
+            'protein_id=MAG "|" $1 "|" gene',
+            '$9=$9 "protein_id=" protein_id ";mag_id=" MAG',
+        ):
+            self.assertIn(expected, program)
+
     def test_version_comes_from_usage_without_regex_or_version_option(self) -> None:
         source = script_source()
         self.assertNotIn("--version", source)
@@ -118,6 +144,38 @@ class GeneMarkS2StaticTests(unittest.TestCase):
         args = "--test-option 'two words' --test-path '$PATH'"
         tokens = shlex.split(prediction_command(render_script(args)))
         self.assertEqual(tokens[-7:-3], ["--test-option", "two words", "--test-path", "$PATH"])
+
+
+@unittest.skipUnless(AWK, "awk is required (or set AWK to its executable path)")
+class GeneMarkS2GffAwkTests(unittest.TestCase):
+    def test_synthetic_gff_preserves_fields_and_gene_identifiers(self) -> None:
+        cases = (
+            ('gene_id "gene_7";', "gene_7"),
+            ("ID=gene_8", "gene_8"),
+            ("ID=alternate; gene_id=gene_9; note=x;", "gene_9"),
+            ("note=no_gene", "4"),
+        )
+        lines = ["##gff-version 3", "short_record"]
+        expected = lines.copy()
+        mag_id = "MAG_TEST_0001"
+        fields = ["contig_1", "GeneMarkS-2", "CDS", "1", "9", ".", "+", "0"]
+        for attributes, gene in cases:
+            lines.append("\t".join([*fields, attributes]))
+            expected.append("\t".join([
+                *fields,
+                attributes + ("" if attributes.endswith(";") else ";")
+                + f"protein_id={mag_id}|contig_1|{gene};mag_id={mag_id}",
+            ]))
+        result = subprocess.run(
+            [AWK, "-v", f"MAG={mag_id}", gff_awk_program()],
+            input="\n".join(lines) + "\n",
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(result.stdout, "\n".join(expected) + "\n")
 
 
 @unittest.skipUnless(GROOVY or (JAVA and GROOVY_CLASSPATH), "Groovy or JAVA + GROOVY_CLASSPATH is required")

@@ -130,8 +130,8 @@ process GENEMARKS2 {
             feature_number++
             gene=""
             count=split(\$9, parts, ";")
-            for (index=1; index<=count; index++) {
-                item=parts[index]
+            for (field_idx=1; field_idx<=count; field_idx++) {
+                item=parts[field_idx]
                 gsub(/^[[:space:]]+|[[:space:]]+\$/, "", item)
                 if (item ~ /^gene_id[[:space:]=]/) {
                     sub(/^gene_id[[:space:]=]+/, "", item)
