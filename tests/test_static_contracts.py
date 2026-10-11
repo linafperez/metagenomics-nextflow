@@ -130,6 +130,61 @@ class StaticProductionContractTests(unittest.TestCase):
             self.assertRegex(declarations, rf"(?m)^process\s+{process}\s*\{{")
             self.assertIn(process, configs)
 
+    def test_dastool_bin_validation_uses_bash_arrays_with_escaped_expansions(self) -> None:
+        module = self.read("modules/core/dastool/main.nf")
+        self.assertNotIn("$(find ", module)
+        start = module.index('if [ ! -d "${prefix}_DASTool_bins" ]; then')
+        end = module.index('test -s "${prefix}_DASTool_summary.tsv"')
+        validation = module[start:end]
+        self.assertIn("shopt -s nullglob", validation)
+        self.assertIn("exit 1", validation.split("shopt -s nullglob", 1)[0])
+        array = validation.split("dastool_bins=(", 1)[1].split(")", 1)[0]
+        self.assertEqual(
+            [line.strip() for line in array.strip().splitlines()],
+            ['"${prefix}_DASTool_bins"/*.' + extension for extension in ("fa", "fna", "fasta")],
+        )
+        empty_check = r'if [ "\${#dastool_bins[@]}" -eq 0 ]; then'
+        self.assertIn(empty_check, validation)
+        self.assertIn("exit 1", validation.split(empty_check, 1)[1].split("\n    fi", 1)[0])
+        self.assertIn("valid_bin=0", validation)
+        self.assertIn(r'for bin_file in "\${dastool_bins[@]}"; do', validation)
+        self.assertIn(r'if [ -f "\${bin_file}" ] && [ -s "\${bin_file}" ]; then', validation)
+        self.assertIn("valid_bin=1\n            break", validation)
+        nonempty_check = r'if [ "\${valid_bin}" -ne 1 ]; then'
+        self.assertIn(nonempty_check, validation)
+        self.assertIn("exit 1", validation.split(nonempty_check, 1)[1].split("\n    fi", 1)[0])
+
+    def test_dastool_command_and_output_contract_are_preserved(self) -> None:
+        module = self.read("modules/core/dastool/main.nf")
+        command = module.split("    DAS_Tool ", 1)[1].split("        ${args}", 1)[0]
+        self.assertEqual(
+            [line.strip() for line in command.strip().splitlines()],
+            [
+                "\\",
+                '--bins "${comebin_map},${metabat2_map},${semibin2_map},${vamb_map}" \\',
+                "--labels COMEBin,MetaBAT2,SemiBin2,Vamb \\",
+                '--contigs "${contigs}" \\',
+                '--outputbasename "${prefix}" \\',
+                "--threads ${task.cpus} \\",
+                "--search_engine diamond \\",
+                "--write_bins \\",
+                "--write_bin_evals \\",
+            ],
+        )
+        outputs = module.split("    output:\n", 1)[1].split("    when:", 1)[0]
+        self.assertEqual(
+            [line.strip() for line in outputs.strip().splitlines()],
+            [
+                "tuple val(meta), path('*_DASTool_bins/*.{fa,fna,fasta}', arity: '1..*'), emit: bins",
+                "tuple val(meta), path('*_DASTool_summary.tsv'), emit: summary",
+                "tuple val(meta), path('*_DASTool_contig*bin.tsv'), emit: contigs2bin",
+                "tuple val(meta), path('*_allBins.eval'), emit: evaluations",
+                "tuple val(meta), path('*_DASTool.log'), emit: log",
+                "tuple val(meta), path('*_proteins.faa'), optional: true, emit: proteins",
+                'tuple val("${task.process}"), val(\'das_tool\'), val(\'1.1.7\'), emit: versions',
+            ],
+        )
+
     def test_comebin_output_directory_exists_before_tool_invocation(self) -> None:
         module = self.read("modules/core/comebin/main.nf")
         command = module[module.index('    """\n    set -euo pipefail') :]

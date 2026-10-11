@@ -50,7 +50,32 @@ process DASTOOL {
         --write_bin_evals \
         ${args}
 
-    test -n "\$(find "${prefix}_DASTool_bins" -type f \( -name '*.fa' -o -name '*.fna' -o -name '*.fasta' \) -size +0c -print -quit)"
+    if [ ! -d "${prefix}_DASTool_bins" ]; then
+        echo "DAS Tool did not produce its bins directory" >&2
+        exit 1
+    fi
+    shopt -s nullglob
+    dastool_bins=(
+        "${prefix}_DASTool_bins"/*.fa
+        "${prefix}_DASTool_bins"/*.fna
+        "${prefix}_DASTool_bins"/*.fasta
+    )
+    if [ "\${#dastool_bins[@]}" -eq 0 ]; then
+        echo "DAS Tool did not produce FASTA bins" >&2
+        exit 1
+    fi
+
+    valid_bin=0
+    for bin_file in "\${dastool_bins[@]}"; do
+        if [ -f "\${bin_file}" ] && [ -s "\${bin_file}" ]; then
+            valid_bin=1
+            break
+        fi
+    done
+    if [ "\${valid_bin}" -ne 1 ]; then
+        echo "DAS Tool did not produce a non-empty FASTA bin file" >&2
+        exit 1
+    fi
     test -s "${prefix}_DASTool_summary.tsv"
     test -s "${prefix}_DASTool_contigs2bin.tsv"
     test -s "${prefix}_allBins.eval"
