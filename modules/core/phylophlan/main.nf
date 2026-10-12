@@ -55,18 +55,24 @@ process PHYLOPHLAN {
     """
     set -euo pipefail
 
+    NF_CPUS="${task.cpus}"
+    NF_PREFIX="${prefix}"
+    NF_DATABASE="${phylophlan_db}"
+    NF_DATABASE_NAME="${database_name}"
+    NF_CONFIG="${phylophlan_config}"
+
     mkdir -p genomes databases
     ${stage_commands}
 
-    if [[ ! -d "${phylophlan_db}" ]]; then
+    if [[ ! -d "\${NF_DATABASE}" ]]; then
         echo "PhyloPhlAn database input must be a directory" >&2
         exit 1
     fi
 
-    ln -s "\$PWD/${phylophlan_db}" "databases/${database_name}"
+    ln -s "\$PWD/\${NF_DATABASE}" "databases/\${NF_DATABASE_NAME}"
 
     iqtree_version=\$(iqtree --version 2>&1)
-    if ! grep -Eq '(^|[^0-9])3\.0\.1([^0-9]|\$)' <<< "\${iqtree_version}"; then
+    if ! grep -Eq '(^|[^0-9])3[.]0[.]1([^0-9]|\$)' <<< "\${iqtree_version}"; then
         echo "PhyloPhlAn requires IQ-TREE 3.0.1; configure a combined container or use Conda" >&2
         exit 1
     fi
@@ -75,35 +81,35 @@ process PHYLOPHLAN {
 
     phylophlan \
         -i genomes \
-        -d "${database_name}" \
+        -d "\${NF_DATABASE_NAME}" \
         -t a \
-        -f "${phylophlan_config}" \
+        -f "\${NF_CONFIG}" \
         --databases_folder databases \
         --genome_extension .fna \
         --force_nucleotides \
         --diversity high \
         --accurate \
-        --nproc ${task.cpus} \
-        --output_folder "${prefix}.phylophlan" \
+        --nproc "\${NF_CPUS}" \
+        --output_folder "\${NF_PREFIX}.phylophlan" \
         --verbose \
         ${args} \
-        2>&1 | tee "${prefix}.phylophlan.log"
+        2>&1 | tee "\${NF_PREFIX}.phylophlan.log"
 
-    mapfile -t tree_files < <(find "${prefix}.phylophlan" -maxdepth 1 -type f -name '*.treefile')
+    mapfile -t tree_files < <(find "\${NF_PREFIX}.phylophlan" -maxdepth 1 -type f -name '*.treefile')
     if [[ "\${#tree_files[@]}" -ne 1 ]]; then
         echo "Expected one IQ-TREE treefile, found \${#tree_files[@]}" >&2
         exit 1
     fi
-    cp "\${tree_files[0]}" "${prefix}.phylophlan.tree.nwk"
+    cp "\${tree_files[0]}" "\${NF_PREFIX}.phylophlan.tree.nwk"
 
-    mapfile -t alignments < <(find "${prefix}.phylophlan" -maxdepth 1 -type f -name '*_concatenated.aln')
+    mapfile -t alignments < <(find "\${NF_PREFIX}.phylophlan" -maxdepth 1 -type f -name '*_concatenated.aln')
     if [[ "\${#alignments[@]}" -ne 1 ]]; then
         echo "Expected one PhyloPhlAn concatenated alignment, found \${#alignments[@]}" >&2
         exit 1
     fi
-    cp "\${alignments[0]}" "${prefix}.phylophlan.alignment.fasta"
-    test -s "${prefix}.phylophlan.tree.nwk"
-    test -s "${prefix}.phylophlan.alignment.fasta"
+    cp "\${alignments[0]}" "\${NF_PREFIX}.phylophlan.alignment.fasta"
+    test -s "\${NF_PREFIX}.phylophlan.tree.nwk"
+    test -s "\${NF_PREFIX}.phylophlan.alignment.fasta"
     rm -rf -- genomes databases
     """
 
