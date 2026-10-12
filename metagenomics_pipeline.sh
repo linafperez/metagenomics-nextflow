@@ -959,18 +959,23 @@ run_nextflow checkpoints_initial sra-checkpoints "${work_dir}/checkpoints-initia
     "${sra_common[@]}" --sraManifest "${project_manifest}" --sraRequireComplete false
 
 mapfile -t pending_samples < <(awk -F '\t' 'NR > 1 && $2 != "" { print $2 }' "${state_dir}/sra_pending_samples.tsv")
-for sample_id in "${pending_samples[@]}"; do
-    [[ "${sample_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "unsafe sample ID in pending manifest: ${sample_id}"
-    printf 'Processing SRA biological sample %s\n' "${sample_id}"
-    sample_work="${preprocessing_work_root}/${sample_id}"
-    run_nextflow "sample_${sample_id}" sra-preprocess "${sample_work}" \
-        "${sra_common[@]}" --sraManifest "${project_manifest}" --sraSampleId "${sample_id}"
-    validate_sample_checkpoint "${sample_id}"
-    safe_remove_sample_work "${sample_work}" "${preprocessing_work_root}" "${sample_id}"
-done
 
-run_nextflow checkpoints_final sra-checkpoints "${work_dir}/checkpoints-final" \
-    "${sra_common[@]}" --sraManifest "${project_manifest}" --sraRequireComplete true
+if (( ${#pending_samples[@]} > 0 )); then
+    for sample_id in "${pending_samples[@]}"; do
+        [[ "${sample_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "unsafe sample ID in pending manifest: ${sample_id}"
+        printf 'Processing SRA biological sample %s\n' "${sample_id}"
+        sample_work="${preprocessing_work_root}/${sample_id}"
+        run_nextflow "sample_${sample_id}" sra-preprocess "${sample_work}" \
+            "${sra_common[@]}" --sraManifest "${project_manifest}" --sraSampleId "${sample_id}"
+        validate_sample_checkpoint "${sample_id}"
+        safe_remove_sample_work "${sample_work}" "${preprocessing_work_root}" "${sample_id}"
+    done
+
+    run_nextflow checkpoints_final sra-checkpoints "${work_dir}/checkpoints-final" \
+        "${sra_common[@]}" --sraManifest "${project_manifest}" --sraRequireComplete true
+else
+    printf 'All SRA checkpoints were already complete; skipping redundant final reconciliation.\n'
+fi
 
 run_nextflow global sra-global "${work_dir}/global" "${sra_common[@]}" \
     --sraCheckpointManifest "${checkpoint_manifest}" \
