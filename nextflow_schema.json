@@ -245,6 +245,10 @@
       "type": ["string", "null"],
       "description": "InterProScan 5.59-91.0 data directory."
     },
+    "interproscan_fingerprintscan_path": {
+      "type": ["string", "null"],
+      "description": "Optional site-provided PRINTS fingerPRINTScan executable or wrapper used by InterProScan."
+    },
     "min_contig_length": {
       "type": "integer",
       "minimum": 1,

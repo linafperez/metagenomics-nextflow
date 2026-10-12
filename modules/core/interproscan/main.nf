@@ -22,6 +22,7 @@ process INTERPROSCAN {
     script:
     def args   = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: (meta.mag_id ?: meta.id)
+    def fingerprintscan_path = task.ext.fingerprintscan_path ?: ''
 
     """
     set -euo pipefail
@@ -45,12 +46,35 @@ process INTERPROSCAN {
 
     INTERPROSCAN_USER_DIR="\$PWD/interproscan_user"
     mkdir -p "\${INTERPROSCAN_USER_DIR}/.interproscan-5" tmp
+
+    custom_properties="\${INTERPROSCAN_USER_DIR}/.interproscan-5/interproscan.properties"
+
     sed "s|^data.directory=.*|data.directory=\${data_dir}|" \
         "\${properties}" \
-        > "\${INTERPROSCAN_USER_DIR}/.interproscan-5/interproscan.properties"
+        > "\${custom_properties}"
+
+    fingerprintscan_path="${fingerprintscan_path}"
+
+    if [[ -n "\${fingerprintscan_path}" ]]; then
+        fingerprintscan_path=\$(readlink -f "\${fingerprintscan_path}")
+
+        if [[ ! -x "\${fingerprintscan_path}" ]]; then
+            echo "Configured PRINTS fingerPRINTScan executable is not executable: \${fingerprintscan_path}" >&2
+            exit 1
+        fi
+
+        if grep -q '^binary.fingerprintscan.path=' "\${custom_properties}"; then
+            sed -i \
+                "s|^binary.fingerprintscan.path=.*|binary.fingerprintscan.path=\${fingerprintscan_path}|" \
+                "\${custom_properties}"
+        else
+            printf 'binary.fingerprintscan.path=%s\n' \
+                "\${fingerprintscan_path}" >> "\${custom_properties}"
+        fi
+    fi
 
     export _JAVA_OPTIONS="-Duser.home=\${INTERPROSCAN_USER_DIR}"
-    export INTERPROSCAN_CONF="\${INTERPROSCAN_USER_DIR}/.interproscan-5/interproscan.properties"
+    export INTERPROSCAN_CONF="\${custom_properties}"
 
     echo "Running InterProScan functional annotation"
 
