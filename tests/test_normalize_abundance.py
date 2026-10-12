@@ -91,7 +91,7 @@ class NormalizeCovermAbundanceTests(unittest.TestCase):
                 coverm_header("sample_b", "sample_a")
                 + "\n"
                 + "MAG_2\t2.5\t3.25\t0.75\t2048\t4.5\t6.25\t0.8\t2048\n"
-                + "unmapped\t70\t0\t0\t1\t60\t0\t0\t1\n"
+                + "unmapped\t70\tNA\tNA\tNA\t60\tNA\tNA\tNA\n"
                 + "MAG_1\t7.125\t8.5\t1\t4096\t9.25\t10.75\t0.125\t4096\n"
             )
             result, output = run_normalizer(

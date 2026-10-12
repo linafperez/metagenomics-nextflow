@@ -210,7 +210,15 @@ process COVERM_GENOME {
         {
             for (column = 4; column <= NF; column += 4) {
                 length_column = column + 1
-                \$column = \$length_column > 0 ? \$column / \$length_column : 0
+                covered = \$column
+                genome_length = \$length_column
+                if (covered == "NA" || covered == "" ||
+                    genome_length == "NA" || genome_length == "" ||
+                    (genome_length + 0) <= 0) {
+                    \$column = "NA"
+                } else {
+                    \$column = (covered + 0) / (genome_length + 0)
+                }
             }
         }
         { print }
