@@ -79,6 +79,8 @@ process PHYLOPHLAN {
 
     echo "Running PhyloPhlAn phylogenomics"
 
+    mkdir -p "\${NF_PREFIX}.phylophlan"
+
     phylophlan \
         -i genomes \
         -d "\${NF_DATABASE_NAME}" \
