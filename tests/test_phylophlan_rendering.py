@@ -77,6 +77,11 @@ class PhylophlanStaticTests(unittest.TestCase):
         self.assertEqual(source.count("${stage_commands}"), 1)
         render_script()  # Rejects unsupported escapes and unbound Bash dollars anywhere.
 
+    def test_iqtree_model_matches_forced_nucleotide_phylogeny(self) -> None:
+        config = (REPOSITORY / "assets/phylophlan_iqtree.cfg").read_text(encoding="utf-8")
+        self.assertIn("params = --quiet -m GTR+ASC", config)
+        self.assertNotIn("-m LG", config)
+
     def test_scientific_command_and_empty_args_are_preserved(self) -> None:
         self.assertEqual(
             shlex.split(phylophlan_command(render_script())),
