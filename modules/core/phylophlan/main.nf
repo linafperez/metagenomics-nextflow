@@ -97,14 +97,14 @@ process PHYLOPHLAN {
         ${args} \
         2>&1 | tee "\${NF_PREFIX}.phylophlan.log"
 
-    mapfile -t tree_files < <(find "\${NF_PREFIX}.phylophlan" -maxdepth 1 -type f -name '*.treefile')
+    mapfile -t tree_files < <(find "\${NF_PREFIX}.phylophlan" -type f -name '*.treefile' -not -path '*/tmp/*')
     if [[ "\${#tree_files[@]}" -ne 1 ]]; then
         echo "Expected one IQ-TREE treefile, found \${#tree_files[@]}" >&2
         exit 1
     fi
     cp "\${tree_files[0]}" "\${NF_PREFIX}.phylophlan.tree.nwk"
 
-    mapfile -t alignments < <(find "\${NF_PREFIX}.phylophlan" -maxdepth 1 -type f -name '*_concatenated.aln')
+    mapfile -t alignments < <(find "\${NF_PREFIX}.phylophlan" -type f -name '*_concatenated.aln' -not -path '*/tmp/*')
     if [[ "\${#alignments[@]}" -ne 1 ]]; then
         echo "Expected one PhyloPhlAn concatenated alignment, found \${#alignments[@]}" >&2
         exit 1

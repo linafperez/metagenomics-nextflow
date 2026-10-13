@@ -171,19 +171,19 @@ phylophlan() {
     [[ -L genomes/MAG_TEST_0001.fna && -L genomes/MAG_TEST_0002.fna ]] || return 90
     [[ -L databases/phylophlan ]] || return 91
     printf '%s\n' genomes/*.fna > staged_mags
-    mkdir -p "${NF_PREFIX}.phylophlan"
+    mkdir -p "${NF_PREFIX}.phylophlan/genomes_phylophlan"
     for ((mock_idx=0; mock_idx<MOCK_TREE_COUNT; mock_idx++)); do
         if [[ "$MOCK_EMPTY_TREE" == 1 ]]; then
-            : > "${NF_PREFIX}.phylophlan/tree_${mock_idx}.treefile"
+            : > "${NF_PREFIX}.phylophlan/genomes_phylophlan/tree_${mock_idx}.treefile"
         else
-            printf '(MAG_TEST_0001,MAG_TEST_0002);\n' > "${NF_PREFIX}.phylophlan/tree_${mock_idx}.treefile"
+            printf '(MAG_TEST_0001,MAG_TEST_0002);\n' > "${NF_PREFIX}.phylophlan/genomes_phylophlan/tree_${mock_idx}.treefile"
         fi
     done
     for ((mock_idx=0; mock_idx<MOCK_ALIGNMENT_COUNT; mock_idx++)); do
         if [[ "$MOCK_EMPTY_ALIGNMENT" == 1 ]]; then
-            : > "${NF_PREFIX}.phylophlan/alignment_${mock_idx}_concatenated.aln"
+            : > "${NF_PREFIX}.phylophlan/genomes_phylophlan/alignment_${mock_idx}_concatenated.aln"
         else
-            printf '>MAG_TEST_0001\nATG\n>MAG_TEST_0002\nATG\n' > "${NF_PREFIX}.phylophlan/alignment_${mock_idx}_concatenated.aln"
+            printf '>MAG_TEST_0001\nATG\n>MAG_TEST_0002\nATG\n' > "${NF_PREFIX}.phylophlan/genomes_phylophlan/alignment_${mock_idx}_concatenated.aln"
         fi
     done
     printf 'mock PhyloPhlAn completed\n'
