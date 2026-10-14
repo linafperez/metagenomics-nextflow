@@ -23,6 +23,7 @@ process INTERPROSCAN {
     def args   = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: (meta.mag_id ?: meta.id)
     def fingerprintscan_path = task.ext.fingerprintscan_path ?: ''
+    def cath_resolve_hits_path = task.ext.cath_resolve_hits_path ?: ''
 
     """
     set -euo pipefail
@@ -70,6 +71,25 @@ process INTERPROSCAN {
         else
             printf 'binary.fingerprintscan.path=%s\n' \
                 "\${fingerprintscan_path}" >> "\${custom_properties}"
+        fi
+    fi
+
+    cath_resolve_hits_path="${cath_resolve_hits_path}"
+
+    if [[ -n "\${cath_resolve_hits_path}" ]]; then
+        cath_resolve_hits_path=\$(readlink -f "\${cath_resolve_hits_path}")
+        if [[ ! -x "\${cath_resolve_hits_path}" ]]; then
+            echo "Configured CATH cath-resolve-hits executable is not executable: \${cath_resolve_hits_path}" >&2
+            exit 1
+        fi
+
+        if grep -q '^cath.resolve.hits.path=' "\${custom_properties}"; then
+            sed -i \
+                "s|^cath.resolve.hits.path=.*|cath.resolve.hits.path=\${cath_resolve_hits_path}|" \
+                "\${custom_properties}"
+        else
+            printf 'cath.resolve.hits.path=%s\n' \
+                "\${cath_resolve_hits_path}" >> "\${custom_properties}"
         fi
     fi
 

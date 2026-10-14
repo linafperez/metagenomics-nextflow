@@ -249,6 +249,10 @@
       "type": ["string", "null"],
       "description": "Optional site-provided PRINTS fingerPRINTScan executable or wrapper used by InterProScan."
     },
+    "interproscan_cath_resolve_hits_path": {
+      "type": ["string", "null"],
+      "description": "Optional site-provided CATH cath-resolve-hits executable used by InterProScan Gene3D."
+    },
     "min_contig_length": {
       "type": "integer",
       "minimum": 1,
