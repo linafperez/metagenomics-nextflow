@@ -253,6 +253,10 @@
       "type": ["string", "null"],
       "description": "Optional site-provided CATH cath-resolve-hits executable used by InterProScan Gene3D."
     },
+    "interproscan_ps_path": {
+      "type": ["string", "null"],
+      "description": "Optional ps compatibility executable prepended to PATH for InterProScan."
+    },
     "min_contig_length": {
       "type": "integer",
       "minimum": 1,

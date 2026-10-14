@@ -24,6 +24,7 @@ process INTERPROSCAN {
     def prefix = task.ext.prefix ?: (meta.mag_id ?: meta.id)
     def fingerprintscan_path = task.ext.fingerprintscan_path ?: ''
     def cath_resolve_hits_path = task.ext.cath_resolve_hits_path ?: ''
+    def interproscan_ps_path = task.ext.interproscan_ps_path ?: ''
 
     """
     set -euo pipefail
@@ -90,6 +91,25 @@ process INTERPROSCAN {
         else
             printf 'cath.resolve.hits.path=%s\n' \
                 "\${cath_resolve_hits_path}" >> "\${custom_properties}"
+        fi
+    fi
+
+    interproscan_ps_path="${interproscan_ps_path}"
+
+    if [[ -n "\${interproscan_ps_path}" ]]; then
+        interproscan_ps_path=\$(readlink -f "\${interproscan_ps_path}")
+
+        if [[ ! -x "\${interproscan_ps_path}" ]]; then
+            echo "Configured InterProScan ps compatibility executable is not executable: \${interproscan_ps_path}" >&2
+            exit 1
+        fi
+
+        interproscan_ps_dir=\$(dirname "\${interproscan_ps_path}")
+        export PATH="\${interproscan_ps_dir}:\${PATH}"
+
+        if [[ "\$(command -v ps)" != "\${interproscan_ps_path}" ]]; then
+            echo "InterProScan ps compatibility executable was not selected through PATH" >&2
+            exit 1
         fi
     fi
 
