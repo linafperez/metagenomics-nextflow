@@ -37,7 +37,7 @@ process MULTIQC {
         2>&1 | tee "${prefix}.multiqc.log"
 
     mv multiqc_output/multiqc_report.html "${prefix}.multiqc.html"
-    mv multiqc_output/multiqc_data "${prefix}.multiqc_data"
+    mv multiqc_output/multiqc_report_data "${prefix}.multiqc_data"
     """
 
 }
