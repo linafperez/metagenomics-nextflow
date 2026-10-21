@@ -1,45 +1,37 @@
 name: sratools_acquire
-description: Acquire, validate, convert, compress, and deterministically merge all eligible SRA runs for one selected BioSample.
+description: Acquire and validate one eligible SRA run as a paired gzip FASTQ task.
 keywords:
   - sra
   - fastq
   - metagenomics
 tools:
   - sra-tools:
-      description: NCBI utilities for SRA acquisition and validation
+      description: NCBI SRA acquisition, validation, and FASTQ conversion
       homepage: https://github.com/ncbi/sra-tools
       licence: PUBLIC-DOMAIN
   - pigz:
-      description: Parallel gzip compressor
+      description: Parallel gzip compression and CRC validation
       homepage: https://zlib.net/pigz/
       licence: ZLIB
 input:
   - meta:
       type: map
-      description: BioSample metadata including id and optional group
-  - run_manifest:
-      type: file
-      description: Frozen eligible run manifest
-  - acquisition_helper:
-      type: file
-      description: Storage-bounded acquisition controller
-  - scratch_root:
-      type: directory
-      description: Disposable acquisition workspace outside the repository
-  - cache_root:
-      type: directory
-      description: Disposable prefetch cache root
-  - temporary_root:
-      type: directory
-      description: Disposable fasterq-dump temporary root
-  - maximum_size:
+      description: BioSample identity, group, run list, project, and input metadata
+  - run_accession:
       type: value
-      description: Maximum object size accepted by prefetch, or u for unlimited
+      description: One eligible run belonging to this BioSample
+  - pair_validator:
+      type: file
+      description: Streaming AWK validation of paired FASTQ structure and read IDs
 output:
   - reads:
       type: file
-      description: One gzip-compressed paired FASTQ set for the BioSample
+      description: Metadata, run accession, and validated gzip mate pair
       pattern: '*_R*.fastq.gz'
-  - versions:
+  - log:
       type: file
-      description: Tool version records
+      description: Acquisition and validation log
+      pattern: '*.sra.log'
+  - versions:
+      type: value
+      description: Process, tool, and version tuple

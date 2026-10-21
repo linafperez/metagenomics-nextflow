@@ -1,4 +1,4 @@
-name: metagenomics-sra-checkpoints
+name: metagenomics-sra-runinfo
 channels:
   - conda-forge
 dependencies:

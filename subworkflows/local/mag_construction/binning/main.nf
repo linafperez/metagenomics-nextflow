@@ -15,7 +15,7 @@ workflow BINNING {
 
     main:
     ch_filter_script = channel.value(
-        file("${projectDir}/bin/filter_fasta_by_length.py", checkIfExists: true)
+        file("${projectDir}/bin/filter_fasta_by_length.awk", checkIfExists: true)
     )
 
     FILTER_CONTIGS(
