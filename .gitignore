@@ -26,6 +26,7 @@ RAW/
 raw/
 !assets/raw/
 !assets/raw/PRJNA782492_metagenomic_samples.tsv
+!assets/raw/PRJNA782492_subset8.tsv
 databases/
 database/
 db/
@@ -46,3 +47,12 @@ samplesheet.hpc.csv
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local reports, temporary downloads, and validation artifacts
+*.log
+*.partial
+*.tmp
+*.pid
+.pytest_cache/
+.coverage
+htmlcov/

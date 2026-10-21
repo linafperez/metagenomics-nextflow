@@ -3,7 +3,7 @@
 
 The monitor deliberately uses only the Python standard library.  It measures
 allocated filesystem bytes (the same quantity that ``du`` approximates), does
-not follow symbolic links, and continuously checkpoints the largest observed
+not follow symbolic links, and continuously records the largest observed
 size of every Nextflow task work directory.
 
 Runtime measurement errors are recorded in the timeseries and reported on
@@ -34,10 +34,7 @@ TIMESERIES_FIELDS = (
     "invocation_id",
     "invocation_stage",
     "work_bytes",
-    "checkpoint_bytes",
-    "sra_cache_bytes",
     "sra_scratch_bytes",
-    "sra_temp_bytes",
     "results_bytes",
     "database_bytes",
     "total_dynamic_bytes",
@@ -393,10 +390,7 @@ class StorageMonitor:
         scans: dict[str, ScanResult] = {}
         for category in (
             "work",
-            "checkpoint",
-            "sra_cache",
             "sra_scratch",
-            "sra_temp",
             "results",
         ):
             path = self.paths.get(category)
@@ -424,10 +418,7 @@ class StorageMonitor:
             errors.append(stage_warning)
         for category in (
             "work",
-            "checkpoint",
-            "sra_cache",
             "sra_scratch",
-            "sra_temp",
             "results",
             "database",
         ):
@@ -435,10 +426,7 @@ class StorageMonitor:
 
         dynamic_categories = (
             "work",
-            "checkpoint",
-            "sra_cache",
             "sra_scratch",
-            "sra_temp",
             "results",
         )
         dynamic_measured = [
@@ -453,12 +441,9 @@ class StorageMonitor:
             "invocation_id": invocation_id,
             "invocation_stage": invocation_stage,
             "work_bytes": _optional_number(scans["work"].allocated_bytes),
-            "checkpoint_bytes": _optional_number(scans["checkpoint"].allocated_bytes),
-            "sra_cache_bytes": _optional_number(scans["sra_cache"].allocated_bytes),
             "sra_scratch_bytes": _optional_number(
                 scans["sra_scratch"].allocated_bytes
             ),
-            "sra_temp_bytes": _optional_number(scans["sra_temp"].allocated_bytes),
             "results_bytes": _optional_number(scans["results"].allocated_bytes),
             "database_bytes": _optional_number(database_bytes),
             "total_dynamic_bytes": total_dynamic,
@@ -488,10 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--work-dir", type=Path)
-    parser.add_argument("--checkpoint-dir", type=Path)
-    parser.add_argument("--sra-cache-dir", type=Path)
     parser.add_argument("--sra-scratch-dir", type=Path)
-    parser.add_argument("--sra-temp-dir", type=Path)
     parser.add_argument("--results-dir", type=Path)
     parser.add_argument("--database-dir", type=Path)
     parser.add_argument("--timeseries", type=Path)
@@ -499,11 +481,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--task-timeseries", type=Path)
     parser.add_argument("--stage-file", type=Path)
     parser.add_argument("--stop-file", type=Path)
-    parser.add_argument(
-        "--sample-request-file",
-        type=Path,
-        help="Request/acknowledgement file used to force a sample before cleanup.",
-    )
     parser.add_argument("--interval-seconds", type=float, default=60.0)
     parser.add_argument(
         "--once", action="store_true", help="Take exactly one sample and exit."
@@ -523,10 +500,7 @@ def run(args: argparse.Namespace) -> int:
     )
     paths = {
         "work": args.work_dir,
-        "checkpoint": args.checkpoint_dir,
-        "sra_cache": args.sra_cache_dir,
         "sra_scratch": args.sra_scratch_dir,
-        "sra_temp": args.sra_temp_dir,
         "results": args.results_dir,
         "database": args.database_dir,
     }
@@ -551,33 +525,8 @@ def run(args: argparse.Namespace) -> int:
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
 
-    def request_token() -> str | None:
-        if args.sample_request_file is None:
-            return None
-        try:
-            return args.sample_request_file.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return None
-        except OSError as exc:
-            print(f"storage monitor warning: cannot read sample request: {exc}", file=sys.stderr)
-            return None
-
-    def acknowledge_request(token: str | None) -> None:
-        if token is None or args.sample_request_file is None:
-            return
-        try:
-            if args.sample_request_file.read_text(encoding="utf-8") == token:
-                args.sample_request_file.unlink()
-        except FileNotFoundError:
-            pass
-        except OSError as exc:
-            print(f"storage monitor warning: cannot acknowledge sample request: {exc}", file=sys.stderr)
-
-    # Persist a dynamic snapshot before the potentially expensive one-time
-    # database scan starts.  The database measurement runs in the background.
-    initial_token = request_token()
+    # Initial and final observations are independent of workflow scheduling.
     monitor.sample()
-    acknowledge_request(initial_token)
     monitor.start_database_measurement()
 
     while not stop_event.is_set():
@@ -588,19 +537,12 @@ def run(args: argparse.Namespace) -> int:
             if args.stop_file is not None and args.stop_file.exists():
                 stop_event.set()
                 break
-            token = request_token()
-            if token is not None:
-                monitor.sample()
-                acknowledge_request(token)
-                deadline = time.monotonic() + args.interval_seconds
             stop_event.wait(min(1.0, max(0.0, deadline - time.monotonic())))
         if not stop_event.is_set() and time.monotonic() >= deadline:
             monitor.sample()
     # Capture the post-cleanup/failure state instead of ending with a stale
     # pre-stop sample.  Telemetry exceptions remain non-fatal in main().
-    final_token = request_token()
     monitor.sample()
-    acknowledge_request(final_token)
     return 0
 
 

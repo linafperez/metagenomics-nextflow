@@ -175,25 +175,13 @@ OUTER_SCOPE_TOKENS = {
     ),
     "MAG_ABUNDANCE_ESTIMATION": "mag_abundance_estimation",
     "GLOBAL_PROCESSING_EVALUATION": "global_processing_evaluation",
-    "SRA_ACQUISITION_AND_PREPROCESSING": "sra_acquisition_and_preprocessing",
-    "SRA_ACQUISITION": "sra_acquisition_and_preprocessing",
-    "SRA_SAMPLE_PREPROCESSING": "sra_acquisition_and_preprocessing",
-    "SRA_PREPROCESSING": "sra_acquisition_and_preprocessing",
 }
 
-INPUT_DIRECT_TASKS = {
-    "CHECK_SAMPLESHEET",
-    "RESOLVE_SRA_PROJECT",
-    "RESOLVE_SRA_INPUT",
-    "VALIDATE_SRA_MANIFEST",
-    "VALIDATE_SRA_PROJECT",
-    "CHECK_SRA_CHECKPOINTS",
-}
+INPUT_DIRECT_TASKS = {"FETCH_SRA_RUNINFO"}
 REPORTING_DIRECT_TASKS = {
     "COLLECT_VERSIONS",
     "SUMMARIZE_RESOURCES",
     "MONITOR_STORAGE",
-    "FINALIZE_SRA_GLOBAL_RUN",
 }
 
 
@@ -495,9 +483,7 @@ def outer_scope(process: str, stage: str = "") -> str:
     tokens = [part.strip() for part in process.split(":") if part.strip()]
     upper_tokens = [part.upper() for part in tokens]
     stage_upper = stage.upper().replace("-", "_").replace(" ", "_")
-    if stage_upper == "SRA_PREPROCESS":
-        # One staged invocation owns the full acquisition -> QC -> trimming ->
-        # host-removal -> checkpoint lifecycle for a biological sample.
+    if upper_tokens and upper_tokens[-1] in {"SRATOOLS_ACQUIRE", "MERGE_SRA_RUNS"}:
         return "sra_acquisition_and_preprocessing"
     for token in upper_tokens:
         if token in OUTER_SCOPE_TOKENS:
@@ -1129,10 +1115,7 @@ def load_storage(path: Path | None, context: BuildContext) -> dict[str, Any]:
     last = rows[-1]
     category_fields = (
         "work_bytes",
-        "checkpoint_bytes",
-        "sra_cache_bytes",
         "sra_scratch_bytes",
-        "sra_temp_bytes",
         "results_bytes",
         "database_bytes",
     )
@@ -1199,25 +1182,6 @@ def load_storage(path: Path | None, context: BuildContext) -> dict[str, Any]:
     }
 
 
-def attach_stage_storage(
-    subworkflow_rows: Sequence[dict[str, Any]], storage: Mapping[str, Any]
-) -> None:
-    stage_reports = storage.get("by_invocation_stage", {})
-    if not isinstance(stage_reports, Mapping):
-        return
-    preprocessing = stage_reports.get("sra-preprocess")
-    if not isinstance(preprocessing, Mapping):
-        return
-    for row in subworkflow_rows:
-        if row.get("subworkflow") == "sra_acquisition_and_preprocessing":
-            row["sampled_stage_storage_measurements"] = parse_int(
-                preprocessing.get("samples")
-            ) or 0
-            row["sampled_stage_peak_dynamic_storage_bytes"] = parse_int(
-                preprocessing.get("peak_total_dynamic_bytes")
-            )
-
-
 def _manifest_reader(handle: Any, path: Path) -> csv.DictReader:
     delimiter = "," if path.suffix.lower() == ".csv" else "\t"
     return csv.DictReader(handle, delimiter=delimiter)
@@ -1238,7 +1202,7 @@ def load_manifest_counts(
         "biosample_accession",
         "biosample",
     )
-    run_candidates = ("run_accession", "sra_run_accession", "run")
+    run_candidates = ("run_accessions", "run_accession", "sra_run_accession", "run")
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = _manifest_reader(handle, path)
         field_map = {field.lower(): field for field in (reader.fieldnames or [])}
@@ -1253,7 +1217,7 @@ def load_manifest_counts(
             if sample_field and clean_text(row.get(sample_field)):
                 samples.add(clean_text(row.get(sample_field)))
             if run_field and clean_text(row.get(run_field)):
-                runs.add(clean_text(row.get(run_field)))
+                runs.update(value for value in clean_text(row.get(run_field)).split(";") if value)
     if sample_field is None:
         context.limitations.add("Input manifest has no recognized biological-sample column.")
     if resolved_mode == "sra" and run_field is None:
@@ -1736,7 +1700,6 @@ def run(args: argparse.Namespace) -> int:
         context,
     )
     storage = load_storage(args.storage_timeseries, context)
-    attach_stage_storage(subworkflow_rows, storage)
     manifest_counts = load_manifest_counts(
         args.input_manifest, context, args.manifest_mode
     )

@@ -1,1156 +1,177 @@
-# Shotgun metagenomics pipeline
+# Pipeline de metagenómica shotgun
 
-This repository implements a production-oriented shotgun metagenomics pipeline
-in Nextflow DSL2. It accepts either an existing paired-end FASTQ samplesheet or
-an NCBI SRA BioProject plus an explicit BioSample selection, removes human reads, reconstructs
-metagenome-assembled genomes (MAGs) independently with MEGAHIT and metaSPAdes,
-refines and combines both catalogs, and produces taxonomy, phylogenomics,
-functional annotation, abundance, and global processing reports.
+Pipeline Nextflow DSL2 para reads paired-end locales o una selección explícita de BioSamples de SRA. Reconstruye MAGs con MEGAHIT y metaSPAdes, refina ambos catálogos y produce taxonomía, filogenómica, anotación funcional, abundancia y MultiQC.
 
-The normal production workflow always runs both assemblers, all four binners,
-DAS Tool, both assembler-specific refinement paths, and final cross-assembler
-catalog selection.
+## Entrada y ejecución
 
-## Workflow
+Cada ejecución utiliza **un solo workflow de Nextflow**. El TSV completo se lee y valida al inicio con `splitCsv` y Groovy. Todas sus muestras entran al dataflow; Nextflow y el executor deciden qué tareas pueden ejecutarse simultáneamente.
 
 ```text
-main.nf -> METAGENOMICS
-             |-- LOCAL_INPUT
-             `-- SRA_INPUT -> nested SRA lifecycle subworkflows
-                                `-- SRATOOLS_ACQUIRE (core module)
-
-local mode: paired-end FASTQ samplesheet -> raw pair ------------------|
-                                                                      |
-BioProject mode: frozen manifest -> one biological sample             |
-  -> acquire/validate each run -> immediate gzip -> merged raw pair --|
-                                                                      v
-             FastQC (raw) -> fastp -> FastQC (clean) -> Bowtie2 host removal
-                                                                      |
-             BioProject mode: atomic durable checkpoint, then next sample
-                                                                      v
-             paired non-host reads (SRA: only after full reconciliation)
-       |-- MEGAHIT coassembly -> MetaQUAST
-       |     -> CoverM coverage
-       |     -> COMEBin ---------|
-       |     -> MetaBAT2 --------|-> DAS Tool
-       |     -> SemiBin2 --------|
-       |     -> Vamb ------------|
-       |     -> CheckM2 + GUNC -> strict HQ selection
-       |     -> dRep 99% ANI -> dRep 95% species groups
-       |     -> CheckM2 + GUNC
-       |
-       `-- metaSPAdes coassembly -> MetaQUAST
-             -> CoverM coverage
-             -> COMEBin ---------|
-             -> MetaBAT2 --------|-> DAS Tool
-             -> SemiBin2 --------|
-             -> Vamb ------------|
-             -> CheckM2 + GUNC -> strict HQ selection
-             -> dRep 99% ANI -> dRep 95% species groups
-             -> CheckM2 + GUNC
-                         |
-                         `-> provenance-safe catalog merge
-                             -> final dRep 99% ANI representatives
-                             -> final dRep 95% species groups
-                             -> CheckM2 + GUNC
-                             -> FINAL MAG CATALOG
-                                  |-- GTDB-Tk taxonomy
-                                  |-- PhyloPhlAn + IQ-TREE phylogenomics
-                                  |-- GeneMarkS-2
-                                  |     |-- eggNOG-mapper
-                                  |     `-- InterProScan
-                                  |          -> integrated annotations
-                                  `-- CoverM per-sample MAG abundance
-
-all supported reports -> MultiQC
-all module records     -> software_versions.tsv
+TSV de BioSamples + BioProject
+       + RunInfo NCBI (una tarea de metadata, o CSV existente)
+       -> selección/validación Groovy de TODOS los BioSamples
+       -> channel de runs -> SRATOOLS_ACQUIRE por run
+       -> reunión de los runs de CADA BioSample
+       -> tuple(meta, [R1, R2]) por muestra
+       -> FastQC raw -> fastp -> FastQC clean -> Bowtie2 humano
+       -> reads no humanas por muestra -> METAGENOMICS_GLOBAL
 ```
 
-Independent branches remain independent in the Nextflow graph. In particular,
-MEGAHIT and SPAdes can run concurrently; COMEBin, MetaBAT2, SemiBin2, and Vamb
-can run concurrently within each assembly branch; and final-catalog taxonomy,
-phylogenomics, functional annotation, and abundance can run concurrently.
-Executor limits, not artificial scientific dependencies, control actual
-concurrency.
+Una muestra puede comenzar FastQC mientras otras siguen descargándose. La reunión de runs utiliza `groupKey` con el número esperado de runs de esa muestra; no espera a las demás. Bowtie2 recibe un par por muestra. Sólo se combinan runs pertenecientes al mismo BioSample. Las coasambleas posteriores conservan su comportamiento científico original y sí necesitan reunir sus muestras.
 
-### Scientific behavior
+### Manifest SRA
 
-1. **Quality control and filtering.** The same FastQC module evaluates raw and
-   cleaned reads. fastp uses Q30 filtering, a 30 nt minimum length, paired-end
-   adapter detection, poly-G and poly-X trimming, and right-side sliding-window
-   cutting with a four-base window and Q30 mean. Bowtie2 uses
-   `--very-sensitive-local --phred33` against an externally supplied
-   GRCh38.p14 index and retains paired non-host reads. FastQC is diagnostic and
-   does not create an automatic pass/fail branch.
-2. **Assembly.** Reads from every sample are coassembled with
-   MEGAHIT (`meta-large`, 1,000 bp assembly minimum). metaSPAdes (`--meta`)
-   defaults to the same global cohort, with optional condition coassembly
-   followed by a single combined assembly (see below).
-   The same MetaQUAST module evaluates both assemblies. Before binning, a common
-   1,500 bp downstream contig threshold is applied by default.
-3. **Binning.** CoverM creates reusable BAM, MetaBAT2 depth, and Vamb abundance
-   representations. COMEBin, MetaBAT2, SemiBin2, and Vamb run independently;
-   DAS Tool integrates their four bin sets.
-4. **Assembler-specific refinement.** CheckM2 and GUNC evaluate raw DAS Tool
-   bins. High-quality MAG selection is strict: completeness must be greater
-   than 90% and contamination must be less than 5%. GUNC results are retained
-   for inspection but do not impose an undocumented exclusion rule. dRep first
-   selects strain-level representatives at 99% secondary ANI and then records
-   species-level groups/representatives at 95% secondary ANI. Both operations
-   use 90% primary clustering and at least 30% comparable alignment coverage.
-   The 99%-representative set is evaluated again with CheckM2 and GUNC.
-5. **Final catalog.** The branch catalogs are renamed with unique,
-   assembler-aware MAG identifiers and joined to matching quality and provenance
-   rows. Final 99% representative selection and explicit 95% species grouping
-   are repeated across the combined input. The production final catalog is the
-   final 99%-representative set; the 95% species representatives and cluster
-   table are additional outputs. Final MAGs are evaluated again with CheckM2
-   and GUNC.
-6. **Taxonomy and phylogenomics.** GTDB-Tk classifies final MAGs against GTDB
-   release 226. PhyloPhlAn uses conserved markers and IQ-TREE 3.0.1 as its tree
-   backend, producing the alignment and Newick tree. iTOL upload is intentionally
-   outside the pipeline.
-7. **Functional annotation.** GeneMarkS-2 predicts coding sequences and
-   proteins for each final MAG. eggNOG-mapper and InterProScan independently
-   annotate the predicted proteins. A local integration step consolidates
-   descriptions, orthologs, COG, GO, KEGG, EC, CAZy, PFAM, and InterPro fields
-   when present.
-8. **MAG abundance.** CoverM maps every filtered sample to the final catalog
-   using properly paired reads, at least 95% read identity, and at least 75%
-   aligned-read fraction. It emits wide and analysis-ready long tables with
-   relative abundance, mean coverage, covered fraction, and genome length. The
-   long-table normalizer omits CoverM's `unmapped` pseudo-genome row without
-   renormalizing or otherwise changing the abundance values calculated for real
-   MAGs.
-9. **Global evaluation.** MultiQC collects genuine native parser inputs for
-   FastQC, fastp, Bowtie2, MEGAHIT, QUAST/MetaQUAST, CheckM2, and GTDB-Tk.
-   Outputs from tools without a dependable parser remain available in their
-   native result directories and are not claimed as automatically parsed.
-
-### SPAdes coassembly strategies
-
-`--spades-coassembly-mode global` is the default and preserves the existing
-single metaSPAdes execution with all paired non-host reads. Omitting this
-parameter has the same behavior. MEGAHIT always retains its global coassembly.
-
-```text
-GLOBAL: all samples -> one metaSPAdes -> SPAdes downstream
-
-CONDITION:
-samples
-  +-- group A -> metaSPAdes A --\
-  +-- group B -> metaSPAdes B --+--> merged contigs --> SPAdes downstream
-  +-- group N -> metaSPAdes N --/
-```
-
-`--spades-coassembly-mode condition` requires `--group-column NAME` for either
-input mode. After host removal, pairs are grouped by the existing normalized
-`meta.group` value and sorted by sample ID within each group. Group labels are
-opaque strings; any number of categories is supported. Missing columns, empty
-groups, ambiguous/duplicate sample identities, and sanitized filename
-collisions fail before acquisition or preprocessing. Existing input validators
-trim surrounding whitespace from values; the normalized original label is
-preserved in metadata and provenance without biological interpretation.
-
-Every group invokes the existing SPAdes module independently with its unchanged
-version, `--meta`, resources (32 CPUs, 1,800 GB, 14 days), and
-`spades_only_assembler` behavior. BayesHammer runs when that flag is `false`
-(the default). Smaller individual coassemblies can reduce metaSPAdes peak RAM;
-the reduction is dataset-dependent and is not necessarily proportional to
-sample count. Concurrent groups can still have substantial aggregate RAM and
-disk demand.
-
-`MERGE_SPADES_ASSEMBLIES` waits for all groups and concatenates their contigs
-in deterministic group order, preserving sequence order within each FASTA.
-It does not reassemble, deduplicate, or filter sequences. Filesystem identifiers
-are `group_` plus the label with runs of characters outside `[A-Za-z0-9._-]`
-replaced by `_`, truncated to 80 characters. Distinct labels that collide after
-this conversion (including case differences) are rejected. Each contig ID is
-prefixed with `<group_id>__`, and duplicate combined IDs also cause failure.
-The remainder of each FASTA description is preserved.
-
-Outputs stay under `02_mag_construction/spades/assembly/`:
-
-- `conditions/<group_id>/spades_coassembly_<group_id>.contigs.fa`, with each
-  group's SPAdes log, parameters, and optional scaffolds/graph;
-- `spades_coassembly.contigs.fa`, the single combined FASTA consumed by the
-  existing SPAdes downstream contract (`meta.id=spades_coassembly`);
-- `spades_coassembly.contig_provenance.tsv`, containing `combined_contig_id`,
-  `original_contig_id`, `group`, `group_id`, and `coassembly_id`;
-- `spades_coassembly.assemblies.json`, recording group labels, safe identifiers,
-  coassembly IDs, sample membership, and staged source paths. Published
-  individual FASTAs are in `conditions/`; staged paths describe merge inputs.
-
-MetaQUAST, contig filtering, CoverM, all four binners, DAS Tool, branch refinement,
-and downstream catalog integration run once on the combined SPAdes assembly.
-The final common MAG catalog and CoverM abundance per individual sample are
-unchanged. Contig origin does not assign a biological condition to a MAG.
-
-The launcher binds each results root to its strategy in
-`pipeline_info/spades_coassembly_strategy.json` and rejects switching strategy
-or the condition group column in that root. Compare strategies using separate
-results roots. Legacy results/markers without a strategy are treated as
-`global`. Local/global analysis resume keys become `local_spades_condition` /
-`global_spades_condition` in condition mode; global mode and SRA discovery,
-reconciliation, and per-sample keys retain their existing names. Condition
-metadata and merge inputs also participate in Nextflow task hashes. SRA success
-markers record the strategy, and sealing requires the combined FASTA, provenance,
-manifest, and every individual group FASTA before checkpoint cleanup.
-
-For SRA condition mode on SLURM, the launcher uses the configured SLURM queue
-so independent group assemblies can be submitted concurrently. Explicit
-`--storage-constrained` restores queue-size-one scheduling. Global SRA and local
-SRA retain their existing disk scheduling. Sequential SRA acquisition and
-checkpoint validation/cleanup are unchanged in both strategies.
-
-The versioned `assets/raw/test_metagenomic_samples.tsv` selects exactly eight
-BioSamples from PRJNA782492 (four PD and four CT). It is an optional HPC test
-selection, never the default. For example, after configuring site paths:
-
-```bash
-for strategy in global condition; do
-    ./metagenomics_pipeline.sh --hpc --apptainer --run \
-        --database-config /shared/db/metagenomics_databases.config \
-        --sra-project PRJNA782492 \
-        --sra-samples assets/raw/test_metagenomic_samples.tsv \
-        --group-column group --spades-coassembly-mode "$strategy" \
-        --sra-checkpoint-dir "/shared/checkpoints/PRJNA782492_test_${strategy}" \
-        --sra-scratch-dir "/scratch/project/PRJNA782492_test_${strategy}" \
-        --outdir "/shared/project/PRJNA782492_test_${strategy}/results" \
-        --slurm_account ACCOUNT --slurm_queue PARTITION --slurm_qos QOS
-done
-```
-
-These commands are for later HPC execution; adding the TSV does not download
-reads. Direct Nextflow uses the internal spelling `--spadesCoassemblyMode`
-and `--groupColumn`; the launcher accepts the hyphenated options above.
-
-## Pinned software
-
-| Component | Version | Role or compatibility note |
-| --- | ---: | --- |
-| Nextflow | 26.04.6 or newer | DSL2 execution engine |
-| NCBI SRA Toolkit | 3.4.1 | BioProject run acquisition and validation |
-| pigz | 2.8 | Immediate parallel compression and deterministic run merging |
-| FastQC | 0.12.1 | Raw and cleaned read QC |
-| fastp | 1.0.1 | Paired-read trimming and filtering |
-| Bowtie2 | 2.5.4 | Human-read removal |
-| MEGAHIT | 1.2.9 | Metagenomic coassembly |
-| SPAdes | 4.2.0 | metaSPAdes coassembly |
-| MetaQUAST / QUAST | 5.3.0 | Assembly assessment |
-| CoverM | 0.7.0 | Contig coverage and final MAG abundance |
-| COMEBin | 1.0.4 | The requested upstream release “1.04” is packaged as 1.0.4 |
-| MetaBAT2 | 2.18 | Coverage-guided binning |
-| SemiBin2 | 1.5.0 | Semi-supervised binning |
-| Vamb | 5.0.4 | Variational autoencoder binning |
-| DAS Tool | 1.1.7 | Multi-binner refinement |
-| CheckM2 | 1.1.0 | Completeness and contamination |
-| GUNC | 1.0.6 | Taxonomic consistency and chimerism assessment |
-| dRep | 3.6.2 | 99% dereplication and 95% species grouping |
-| GTDB-Tk | 2.6.1 | GTDB release 226 classification |
-| PhyloPhlAn | 3.1.1 | Phylogenomic reconstruction |
-| IQ-TREE | 3.0.1 | PhyloPhlAn tree backend |
-| GeneMarkS-2 | 1.15 | Licensed prokaryotic gene prediction |
-| eggNOG-mapper | 2.1.13 | Protein functional annotation |
-| eggNOG mapper database | 5.0.2 | Supported database for mapper 2.1.13; see note below |
-| InterProScan | 5.59-91.0 | Protein signatures, GO, pathway, and InterPro annotation |
-| MultiQC | 1.35 | Global supported-report aggregation |
-
-eggNOG-mapper 2.1.13 does not support an eggNOG 6.0 mapper database. The
-pipeline therefore pins the compatible eggNOG-mapper database 5.0.2 rather
-than silently presenting an unvalidated eggNOG 6 configuration. This is an
-explicit compatibility substitution; the mapper version remains 2.1.13.
-
-Each module records its declared pinned version in
-`results/pipeline_info/software_versions.tsv`. Bioinformatics tools are pinned
-in both module Conda environments and container definitions wherever packaging
-permits; site-provided runtime overrides remain the operator's responsibility.
-
-## Requirements
-
-Common requirements:
-
-- Linux or WSL2 with Bash, Python 3.10 or newer, Java 17 or newer, and
-  Nextflow 26.04.6 or newer.
-- Read access to input FASTQ files and production databases.
-- Network access to NCBI E-utilities and SRA endpoints when BioProject mode is
-  used; local samplesheet mode does not require SRA access.
-- Separate external durable-checkpoint and disposable-scratch roots for
-  BioProject mode.
-- Sufficient storage for Nextflow work files, container/Conda caches, databases,
-  coassemblies, alignments, and results.
-- One supported software runtime: Docker, Conda with Mamba installed, Apptainer,
-  or compatible Singularity. The `conda` profile requires the `mamba`
-  executable; a Conda installation without Mamba is insufficient.
-
-Local execution uses the Nextflow local executor. Default production resource
-requests are 500 GB for MEGAHIT and 1,800 GB for SPAdes. A workstation that
-cannot satisfy those requests should use an appropriately sized HPC environment;
-do not lower production resources without assessing the dataset.
-
-`spades_only_assembler` defaults to `false`. When set to `true`, the SPAdes
-module adds `--only-assembler`, skipping BayesHammer read error correction.
-This is an explicit fallback for memory-constrained environments and changes
-the metaSPAdes execution mode, so it should be reported in the analysis methods.
-
-HPC execution additionally requires a SLURM cluster, a shared filesystem, a
-site-approved Conda or container runtime, and configured account/queue/QoS
-values where the site requires them. Obsolete hostnames are not embedded in the
-pipeline.
-
-## Input modes
-
-Every production run must select exactly one input mode: `--input`, or the pair
-`--sra-project` + `--sra-samples`. The launcher rejects mixed or incomplete
-input modes.
-
-### Existing paired FASTQ files
-
-Use `--input` with a CSV samplesheet:
-
-```csv
-sample,fastq_1,fastq_2
-sample_A,/data/reads/sample_A_R1.fastq.gz,/data/reads/sample_A_R2.fastq.gz
-sample_B,reads/sample_B_R1.fq.gz,reads/sample_B_R2.fq.gz
-```
-
-The classic header remains valid. To preserve an arbitrary categorical value,
-add a column and identify it with `--group-column`:
-
-```csv
-sample,fastq_1,fastq_2,group
-sample_A,/data/reads/sample_A_R1.fastq.gz,/data/reads/sample_A_R2.fastq.gz,PD
-sample_B,reads/sample_B_R1.fq.gz,reads/sample_B_R2.fq.gz,Control
-```
-
-```bash
-./metagenomics_pipeline.sh --local --docker --run \
-    --input /data/project/samplesheet.csv \
-    --group-column group
-```
-
-The first three columns must be `sample,fastq_1,fastq_2`; additional metadata
-columns are allowed. When `--group-column` is supplied, that named column must
-exist and be non-empty for every sample. Without it, no grouping is applied
-and the original three-column format behaves as before. Sample identifiers must be
-unique and may contain letters, digits, `.`, `_`, and `-`, but must begin with a
-letter or digit. Both read files are required. Supported extensions are
-`.fastq`, `.fastq.gz`, `.fq`, and `.fq.gz`. Relative paths are resolved from
-the samplesheet directory. See [assets/samplesheet.csv](assets/samplesheet.csv)
-for a template.
-
-`nextflow_schema.json` defines production parameter types, allowed values, and
-numeric ranges. The production workflow also validates required parameters,
-numeric ranges, and the relationship `derep_ani > species_ani` before launching
-scientific stages. `CHECK_SAMPLESHEET` then validates and normalizes the input
-table and verifies every paired FASTQ path.
-
-### NCBI SRA BioProject
-
-Use `--sra-project` with a `PRJNA`, `PRJEB`, or `PRJDB` accession and always
-provide `--sra-samples`, a tab-separated explicit BioSample selection:
+Se necesitan `--sra-project PRJNA...` y `--sra-samples FILE.tsv` en el launcher, o `--sraProject` y `--sraSamples` al ejecutar Nextflow directamente.
 
 ```tsv
 biosample_accession	group
-SAMNXXXXXXXX	PD
-SAMEAYYYYYYYY	Control
-SAMDZZZZZZZZ	PD
+SAMN29531760	PD
+SAMN29531788	CT
 ```
 
-```bash
-./metagenomics_pipeline.sh --hpc --apptainer --run \
-    --sra-project PRJNAxxxxxx \
-    --sra-samples /shared/project/samples.tsv \
-    --group-column group \
-    --sra-checkpoint-dir /shared/checkpoints/project \
-    --sra-scratch-dir /scratch/project
+- `biosample_accession`: obligatorio, único; admite accesiones `SAMN`, `SAMEA` y `SAMD`.
+- `group`: opcional; se detecta automáticamente si existe. `--group-column NAME` permite seleccionar otra columna. Las etiquetas se conservan sin interpretarlas: `CT` es la etiqueta de controles del manifest PRJNA782492; no se convierte en otro nombre.
+- Las columnas adicionales se conservan en `meta.metadata` y en `pipeline_info/sample_metadata.tsv`.
+- Si se proporciona una columna de grupo, sus valores deben estar completos. Se rechazan identidades duplicadas, columnas duplicadas, campos de más o de menos y metadata contradictoria.
+
+Cada `meta` contiene `id`, `biosample_accession`, `group`, `project_accession`, `run_accessions`, `identity_source`, `single_end` y `metadata`. La posición de una muestra en el TSV no forma parte del hash de adquisición; `sample_order` se escribe en la tabla de metadata del conjunto.
+
+La resolución de RunInfo conserva los criterios existentes: pertenencia al BioProject, acceso público con ruta de descarga, biblioteca `PAIRED`, estrategia `WGS`, origen `METAGENOMIC`, plataforma permitida y contadores consistentes. Por defecto se permiten `ILLUMINA,BGISEQ`. Se conservan todos los runs elegibles de cada BioSample y se ordenan por accesión. Un BioSample sin runs elegibles o un run duplicado causa error antes de descargar reads. Los runs excluidos se registran en `pipeline_info/sra_exclusions.tsv`.
+
+Opcionalmente `--sra-run-info /ruta/RunInfo.csv` (`--sraRunInfo` directamente) utiliza un CSV NCBI existente sin consultar metadata por internet. Sigue aplicando la misma validación de elegibilidad. La descarga de reads real requiere después conectividad SRA.
+
+### FASTQ locales
+
+`--input samples.csv` acepta:
+
+```csv
+sample,fastq_1,fastq_2,group
+sample_A,reads/A_R1.fastq.gz,reads/A_R2.fastq.gz,PD
 ```
 
-The identifier must be a valid `SAMN`, `SAMEA`, or `SAMD` accession. The
-BioProject is the membership boundary; it no longer means "process the whole
-project." Discovery queries all lightweight RunInfo metadata only to validate
-membership and resolve the requested samples. A BioSample absent from the TSV
-cannot enter the eligible manifest and is never acquired.
+Las rutas relativas se resuelven respecto al CSV original. Se validan archivos, extensiones, identidades únicas y mates distintos con Groovy/Nextflow. La entrada local y SRA son mutuamente excluyentes y comparten el mismo preprocesamiento y análisis posterior.
 
-Within each requested BioSample, only public runs with a download path,
-`PAIRED` layout, `WGS` strategy, `METAGENOMIC` source, and a platform in the
-configured allowlist (`ILLUMINA,BGISEQ` by default) are eligible. Other
-modalities, such as paired `RNA-Seq`/`METATRANSCRIPTOMIC`, are recorded in the
-exclusion audit and not downloaded. Every requested BioSample must belong to
-the BioProject and have at least one eligible run. Missing BioSamples,
-duplicates, no eligible runs, and contradictory metadata fail closed. All
-eligible runs for one BioSample are merged in deterministic run-accession
-order; no experiment/run identity fallback is used.
+## Ocho muestras y conjunto completo
 
-`--group-column` is optional in both input modes. Values are opaque categorical
-labels: any number and spelling of categories is supported, and the pipeline
-does not interpret their biological meaning. When enabled, group is preserved
-in sample metadata, SRA checkpoints, reconstructed `meta`, and the final long
-MAG-abundance table. The pipeline only establishes MAG abundance ↔ sample ↔
-group; differential association still requires a separate statistical method.
+Los manifests incluidos son:
 
-The static [PRJNA782492 example](assets/raw/PRJNA782492_metagenomic_samples.tsv)
-was prepared from the [official NCBI BioProject](https://www.ncbi.nlm.nih.gov/bioproject/782492)
-and its [SRA RunInfo metadata](https://www.ncbi.nlm.nih.gov/sra/docs/sradownload/).
-It is a binary PD-versus-control selection containing 95 BioSamples: 46 `PD`
-and 49 healthy controls labelled `CT`. The 27 iRBD BioSamples in the BioProject
-are deliberately excluded rather than being treated as controls. Assignment is
-based on the official BioSample `host_disease` metadata and the study's
-[published final metagenomic cohort](https://pmc.ncbi.nlm.nih.gov/articles/PMC12502400/),
-which reports exactly 46 PD, 27 iRBD, and 49 healthy-control samples. All 95
-selected BioSamples have public, downloadable `PAIRED`, `WGS`, `METAGENOMIC`,
-`ILLUMINA` RunInfo records. This remains an ordinary user-prepared input file,
-not hardcoded pipeline logic or an automatic dataset download. Run it with
-`--group-column group`.
-
-Discovery writes the raw metadata, deterministic run and sample manifests,
-exclusion table, and a summary with file sizes and SHA-256 hashes under
-`<outdir>/pipeline_info/sra/`:
-
-```text
-sra_project_runinfo.csv
-sra_project_manifest.tsv
-sra_sample_manifest.tsv
-sra_project_exclusions.tsv
-sra_requested_samples.tsv
-sample_metadata.tsv
-sra_project_summary.json
-```
-
-Every later stage validates those frozen files, their hashes, the current
-selection-file SHA-256, and the configured group column. A changed BioSample
-selection or changed group assignment cannot reuse an old checkpoint cohort.
-A restart with the same selection and results directory reuses the cohort
-without re-querying NCBI. Use a different results and checkpoint directory for
-a deliberate new cohort.
-
-### Sequential SRA lifecycle and recovery
-
-BioProject execution is staged by `metagenomics_pipeline.sh`:
-
-```text
-sra-discovery -> sra-checkpoints (initial) -> sra-preprocess (one per pending sample)
-              -> sra-checkpoints (complete gate) -> sra-global
-              -> seal every scientific output -> verified cleanup
-```
-
-These `executionStage` values are internal orchestration details; the supported
-production command is the single launcher invocation shown below.
-
-1. Resolve and freeze metadata, then reconcile existing durable checkpoints.
-2. Select the next pending biological sample in deterministic manifest order.
-3. For each of its runs, `prefetch` and `vdb-validate` the SRA object,
-   `fasterq-dump --split-files` into the configured temporary root, immediately
-   compress both mates with pigz, and remove that run's SRA and uncompressed
-   temporary files before acquiring the next run.
-4. Merge multi-run mates in deterministic order into one gzip pair, run raw
-   FastQC, fastp, clean FastQC, and Bowtie2 host removal, and retain gzip
-   throughout the persistent read path.
-5. Atomically copy the non-host pair and small reports to the external
-   checkpoint root. A completion record is committed only after a full gzip and
-   paired-FASTQ scan, mate-name/count checks, sizes, SHA-256 hashes, and binding
-   to both the selection-file and frozen-manifest hashes all succeed. After the sample invocation returns,
-   the launcher independently revalidates that record, both mates, every retained
-   report, and the frozen-manifest binding. Only then is that sample's disposable
-   Nextflow work directory eligible for removal. The launcher requests a storage
-   sample and waits for a bounded acknowledgement before removing that exact
-   directory and starting the next sample; failure of the optional monitor is
-   warned but does not convert a scientifically complete sample into a failure.
-6. Require a complete checkpoint reconciliation before one unchanged global
-   MEGAHIT + metaSPAdes/MAG/abundance/MultiQC invocation consumes all pairs.
-   Its work root is retained on failure and is eligible for safe deletion only
-   after every durable scientific result has been inventoried and validated.
-
-On restart, records and read pairs are fully revalidated and only missing or
-invalid samples return to the pending loop. A partial pair without its atomic
-completion record is never accepted. With `--resume`, the launcher records the
-last valid Nextflow session UUID separately for each stable invocation key
-(`discovery`, each sample ID, reconciliation, and `global`) in
-`pipeline_info/resources/resume_sessions.tsv`; it passes `-resume <UUID>` only
-back to that same key and starts a first-time key without `-resume`. If a
-checkpoint disappears or changes, reconciliation and the external checkpoint
-commit deliberately bypass Nextflow caching: upstream scientific tasks may
-still resume, but mutable durable state is always observed and repersisted.
-The frozen cohort also binds the normalized platform allowlist; changing
-`--sra-platforms` requires a fresh results/state root rather than silently
-reinterpreting an existing manifest. After a successful global invocation, the
-launcher seals the published result set before deleting any checkpoint read.
-The seal records the relative path, byte count, and SHA-256 of every regular
-file under the six numbered scientific result roots, plus
-`pipeline_info/software_versions.tsv`. It also requires the final MAG catalog,
-catalog provenance and quality, final CheckM2 and GUNC summaries, 95% species
-representatives, GTDB-Tk summary, phylogenomic tree, integrated functional
-annotations, final long-form abundance, global MultiQC report, and software
-versions. The abundance gate requires the exact ordered header, finite numeric
-metrics in their valid ranges, unique sample/MAG pairs, and exactly one row for
-the Cartesian product of completed checkpoint samples and final-catalog MAGs.
-A missing, additional, changed, empty required, invalid, or symbolic-link
-artifact makes validation fail closed.
-
-If a global-success marker is already present, a rerun skips all scientific
-stages but still executes the explicit `seal-global` gate before cleanup. An
-already sealed marker is revalidated without being rewritten; an unsealed
-baseline left by interruption is completed only if the entire current result
-tree passes the same required-artifact and hash scan. Cleanup itself always
-rejects an unsealed marker. If the global workflow or sealing fails, checkpoint
-reads and global work are retained. After revalidation, cleanup deletes only
-the exact checkpoint FASTQ files; reports, records, manifests, and cleanup
-provenance remain. Before the first unlink it atomically writes the complete
-deletion plan to an `in_progress` cleanup journal, updates that journal after
-every file, and marks it `complete` last; an interrupted cleanup therefore
-resumes the same validated plan instead of treating an already removed mate as
-corruption. Pass `--keep-sra-checkpoints` to retain the
-FASTQ pairs as well. Whether checkpoint reads are deleted or explicitly
-retained, their validation completes first; the launcher then forces one final
-storage sample and safely removes the exact SRA global work root. Local FASTQ
-mode retains its normal Nextflow work directory for resume.
-
-The seal intentionally excludes `pipeline_info/resources/`, invocation logs,
-and SRA lifecycle state: telemetry and cleanup provenance continue changing
-during shutdown and are not scientific inputs. They remain durable outputs but
-cannot authorize deletion of checkpoint reads.
-
-Production launches use an atomic, fail-closed ownership lock. Every mode locks
-the selected results state; BioProject mode additionally locks the external
-checkpoint path with a sibling lock directory, so two different result roots
-cannot mutate the same checkpoint cohort. The results lock precedes results
-state and telemetry initialization; after SRA paths are normalized and safety
-checked, the checkpoint lock precedes checkpoint creation, storage monitoring,
-and scientific stages. Locks are acquired in deterministic order and released
-by the exit handler. An existing lock is never assumed stale or removed
-automatically, including across HPC hosts. Inspect its owner metadata, prove
-that the recorded run is no longer active, and only then remove that exact lock
-directory manually.
-
-The lock directories are
-`<outdir>/pipeline_info/.metagenomics_run.lock/` and, in BioProject mode,
-`<sra-checkpoint-dir>.metagenomics_run.lock/`; each publishes `owner.tsv` for
-operator inspection.
-
-SRA checkpoint, scratch, and results roots must be distinct. Each checkpoint
-root must be a dedicated empty directory on first use; it is atomically sealed
-to one BioProject, one selection-file SHA-256, and one exact frozen-manifest
-SHA-256 before any sample copy.
-Reusing it for another project or cohort is rejected before existing data can
-be overwritten. Checkpoint and
-scratch roots are required to be outside the Git repository; scratch is
-disposable, while the checkpoint root is the recovery boundary. BioProject
-mode forces `publish_dir_mode=copy` and rejects symlink publication; checkpoint
-manifests and global outputs bound to cleanup must be durable regular copies.
-The detailed
-compressed-I/O contract and upstream support evidence are recorded in
-[docs/compression_audit.tsv](docs/compression_audit.tsv).
-
-### Compression-first and storage boundaries
-
-The persistent read path remains gzip-compressed. The only unavoidable FASTQ
-decompression is the per-run output of `fasterq-dump`; it is created under the
-configured temporary root, compressed immediately, and removed before the next
-run is acquired. The implemented read-I/O contract is:
-
-| Tool | Pinned version | Compressed input? | Compressed output? | Streaming? | Temporary decompression? | Implementation strategy |
-| --- | ---: | --- | --- | --- | --- | --- |
-| SRA Toolkit | 3.4.1 | SRA object, not FASTQ gzip | No; `fasterq-dump` emits plain FASTQ | Split paired FASTQ is not produced through stdout | Yes, one run pair only | Convert in explicit scratch, immediately pigz both mates, validate, then remove the plain FASTQ and that run's SRA object |
-| pigz | 2.8 | Plain FASTQ or gzip stream | Yes | stdin/stdout supported | No additional plain files | Compress each run immediately; stream-decompress/recompress multi-run mates in frozen order |
-| FastQC | 0.12.1 | Yes | Reports only | Not used | No | Read raw and trimmed `.fastq.gz` directly |
-| fastp | 1.0.1 | Yes | Yes | Supported, but paired stdout is interleaved | No | Read gzip and write two named gzip mates directly |
-| Bowtie2 | 2.5.4 | Yes, through the wrapper | Yes, with `--un-conc-gz` | Supported but not used | No | Read trimmed gzip and write the non-host checkpoint pair as gzip |
-| MEGAHIT | 1.2.9 | Yes | Contigs/reports, not reads | Not needed | No pipeline-created FASTQ | Consume all ordered non-host gzip pairs directly |
-| metaSPAdes | 4.2.0 | Yes | Contigs/reports, not reads | Not needed | No pipeline-created FASTQ | Reference ordered gzip mates in one dataset YAML |
-| CoverM | 0.7.0 | Yes | BAM/coverage/abundance, not reads | Not needed | No pipeline-created FASTQ | Consume paired non-host gzip directly for contig coverage and final MAG abundance |
-
-Storage roles are deliberately separate:
-
-- the SRA cache holds one prefetched run at a time and is disposable;
-- acquisition scratch and the `fasterq-dump` temporary root hold run-local
-  conversion data and are disposable;
-- the external checkpoint root is durable across invocations and contains the
-  validated non-host pairs, small reports, and completion records;
-- Nextflow `work/` contains task intermediates; completed SRA sample work is
-  removed after checkpoint commit, failed global work is retained, and
-  successful SRA global work is removed only after durable-output validation;
-- with `save_intermediates=false`, large native assembly, MetaQUAST, binner,
-  dRep, CheckM2, and GUNC trees plus annotation/DAS Tool scratch are pruned
-  inside a successful task only after required normalized outputs validate;
-- databases are immutable external inputs, never mixed with cache or work;
-- results contain durable scientific outputs, manifests, provenance, and
-  telemetry. Default post-success cleanup removes checkpoint read pairs only
-  after every final consumer and complete scientific-output seal validation;
-  retention is
-  controlled by `--keep-sra-checkpoints`.
-
-## External resources
-
-All production resources live outside Git. Normal pipeline execution never
-downloads them.
-
-| Parameter | Required resource | Expected value |
-| --- | --- | --- |
-| `--host_bowtie2_index` | GRCh38.p14, GENCODE release 44 | Bowtie2 index prefix without `.1.bt2` and related suffixes |
-| `--checkm2_db` | CheckM2 1.1.0 database | Database directory or its DIAMOND file |
-| `--gunc_db` | GUNC 1.0.6 ProGenomes 2.1 database | GUNC `.dmnd` database file |
-| `--gtdbtk_db` | GTDB-Tk release 226 | Unpacked GTDB data directory |
-| `--phylophlan_db` | PhyloPhlAn 3.1.1 markers | PhyloPhlAn database directory |
-| `--phylophlan_config` | PhyloPhlAn backend configuration | Defaults to `assets/phylophlan_iqtree.cfg` |
-| `--genemark_home` | GeneMarkS-2 1.15 | Licensed installation containing `gms2.pl` |
-| `--genemark_key` | GeneMark license key | Readable key file; never commit it |
-| `--eggnog_db` | eggNOG-mapper database 5.0.2 | Directory containing `eggnog.db`, `eggnog.taxa.db`, and `eggnog_proteins.dmnd` |
-| `--interproscan_data` | InterProScan 5.59-91.0 data | Data directory containing the bundled analysis databases |
-
-### Prepare databases separately
-
-The dedicated preparer checks existing resources, resumes HTTP downloads,
-validates expected files and published checksums where available, and avoids
-redownloading valid databases. It stores recoverable backups when an explicit
-redownload replaces an existing resource. The database root must be outside
-this repository and outside any Git worktree.
-
-```bash
-./metagenomics_pipeline.sh --hpc --prepare-databases \
-    --db-root /shared/databases/metagenomics \
-    --genemark-home /opt/genemarks2-1.15 \
-    --genemark-key /secure/licenses/gm_key
-```
-
-Use a local GRCh38.p14 FASTA instead of downloading it:
-
-```bash
-./metagenomics_pipeline.sh --hpc --prepare-databases \
-    --db-root /shared/databases/metagenomics \
-    --human-reference /shared/references/GRCh38.p14.genome.fa.gz
-```
-
-Inspect without downloading, or prepare selected resources only:
-
-```bash
-./metagenomics_pipeline.sh --hpc --prepare-databases \
-    --db-root /shared/databases/metagenomics --check-only
-
-./metagenomics_pipeline.sh --hpc --prepare-databases \
-    --db-root /shared/databases/metagenomics \
-    --only human_reference,bowtie2_index,checkm2,gunc
-```
-
-The preparer writes:
-
-- `/shared/databases/metagenomics/database_manifest.tsv`, containing version,
-  status, path, provenance, check time, and validation details;
-- `/shared/databases/metagenomics/metagenomics_databases.config`, containing
-  ready resource paths for Nextflow.
-
-The preparer invokes `bowtie2-build`, `checkm2 database --download`, and
-`gunc download_db` where those official tools are required. It downloads the
-three eggNOG 5.0.2 archives directly from the current official eggNOG download
-host because the URL embedded in eggNOG-mapper 2.1.13 is obsolete. An optional
-patched downloader can be supplied with `--eggnog-downloader`. Command overrides
-are listed by `bin/prepare_databases.sh --help`.
-
-GeneMarkS-2 is restricted software. The preparer never downloads or copies the
-installation or key; it only validates the user-provided paths and writes them
-to the private generated configuration. Keep the database configuration and
-key outside Git with restrictive permissions.
-
-## Execution model
-
-Environment and software runtime are independent profile dimensions:
-
-```text
---<environment> --<runtime> --<mode>
-```
-
-- Environment: `--local` or `--hpc`.
-- Runtime: `--docker`, `--conda`, `--apptainer`, or `--singularity`.
-- Mode: `--run`.
-- Database preparation: `--prepare-databases`; it is separate and takes no
-  runtime flag.
-
-| Environment | Runtime | `--run` |
-| --- | --- | :---: |
-| local | Docker | yes* |
-| local | Conda + Mamba | yes |
-| local | Apptainer | yes* |
-| local | Singularity | yes* |
-| HPC/SLURM | Docker | no |
-| HPC/SLURM | Conda + Mamba | yes |
-| HPC/SLURM | Apptainer | yes* |
-| HPC/SLURM | Singularity | yes* |
-
-Docker requires a running daemon. The Conda profile requires both Conda and
-Mamba and enables Mamba solving. Its environment cache defaults to the ignored
-repository path `.conda/`; set `--conda_cache_dir` to use a shared or external
-cache.
-Apptainer is the preferred HPC container runtime; the Singularity profile is a
-compatibility option for sites that still expose that executable. Nextflow uses
-the same OCI image declarations for Docker, Apptainer, and Singularity.
-
-The PhyloPhlAn Conda environment pins both PhyloPhlAn 3.1.1 and IQ-TREE 3.0.1.
-The stock PhyloPhlAn container does not guarantee that exact IQ-TREE version;
-the starred container production cells above are supported after the repository
-combined image is built and, for distributed execution, published to a registry
-available from every compute node:
-
-```bash
-docker build \
-    --file containers/phylophlan-iqtree/Dockerfile \
-    --tag metagenomics/phylophlan-iqtree:3.1.1-3.0.1 \
-    .
-```
-
-The local tag is the Docker default. For Apptainer, Singularity, or distributed
-Docker execution, retag and publish it to an accessible OCI registry, then pass
-that image to the pipeline:
-
-```bash
-./metagenomics_pipeline.sh --local --docker --run \
-    --database-config /data/db/metagenomics_databases.config \
-    --phylophlan_container registry.example.org/phylophlan-iqtree:3.1.1-3.0.1 \
-    --input /data/project/samplesheet.csv
-```
-
-See
-[containers/phylophlan-iqtree/README.md](containers/phylophlan-iqtree/README.md)
-for the exact build contract.
-
-Container-backed BioProject execution also requires the repository SRA image,
-which pins SRA Toolkit 3.4.1, pigz 2.8, and Python 3.12.11:
-
-```bash
-docker build -t metagenomics/sra-tools:3.4.1-pigz-2.8 containers/sra-tools
-```
-
-For Docker, the launcher runs every SRA lifecycle container with the invoking
-host UID:GID and a writable scratch-backed `HOME`. This keeps work,
-checkpoints, ownership records, and cleanup permissions usable by the host
-launcher across process boundaries.
-
-Build or publish it before production; the pipeline does not build or pull
-images as part of its tests. See
-[containers/sra-tools/README.md](containers/sra-tools/README.md).
-For distributed Docker/Apptainer/Singularity execution, publish it to an OCI
-registry visible to all nodes and pass that reference as `--sraContainer`.
-
-### Launcher
-
-Make the launcher executable once if needed:
-
-```bash
-chmod +x metagenomics_pipeline.sh bin/prepare_databases.sh
-```
-
-Production examples:
-
-```bash
-./metagenomics_pipeline.sh --local --docker --run \
-    --database-config /data/db/metagenomics_databases.config \
-    --phylophlan_container registry.example.org/phylophlan-iqtree:3.1.1-3.0.1 \
-    --input /data/project/samplesheet.csv \
-    --outdir /data/project/results
-
-./metagenomics_pipeline.sh --local --conda --run \
-    --database-config /data/db/metagenomics_databases.config \
-    --input /data/project/samplesheet.csv
-
-./metagenomics_pipeline.sh --local --apptainer --run \
-    --database-config /data/db/metagenomics_databases.config \
-    --phylophlan_container registry.example.org/phylophlan-iqtree:3.1.1-3.0.1 \
-    --input /data/project/samplesheet.csv
-
-./metagenomics_pipeline.sh --hpc --apptainer --run \
-    --database-config /shared/db/metagenomics_databases.config \
-    --phylophlan_container registry.example.org/phylophlan-iqtree:3.1.1-3.0.1 \
-    --input /shared/project/samplesheet.csv \
-    --slurm_account ACCOUNT --slurm_queue PARTITION --slurm_qos QOS
-```
-
-BioProject mode requires explicit, external checkpoint and scratch roots. Its
-default global strategy serializes queued tasks to reduce overlapping disk demand:
-
-```bash
-./metagenomics_pipeline.sh --hpc --apptainer --run \
-    --database-config /shared/db/metagenomics_databases.config \
-    --phylophlan_container registry.example.org/phylophlan-iqtree:3.1.1-3.0.1 \
-    --sra-project PRJNA123456 \
-    --sra-samples /shared/project/sra_samples.tsv \
-    --sra-checkpoint-dir /shared/checkpoints/PRJNA123456 \
-    --sra-scratch-dir /scratch/project/PRJNA123456 \
-    --outdir /shared/project/PRJNA123456/results \
-    --resource-database-root /shared/db/metagenomics \
-    --slurm_account ACCOUNT --slurm_queue PARTITION --slurm_qos QOS
-```
-
-`--sra-cache-dir` defaults to `<sra-scratch-dir>/sra-cache` and
-`--sra-temp-dir` to `<sra-scratch-dir>/fasterq-temp`. `--sra-email` adds an
-NCBI contact address, `--sra-platforms` changes the discovery allowlist, and
-`--sra-max-size` is passed to `prefetch` (default `u`, unlimited). All staged
-SRA/results paths reject single or double quotes, backticks, dollar signs,
-backslashes, and line breaks. Container-backed SRA storage paths additionally
-reject whitespace, comma, and colon so bind arguments remain unambiguous.
-
-The launcher selects the `disk_efficient` profile for BioProject mode except
-condition coassembly on SLURM. `--storage-constrained` explicitly selects the
-same profile in either input mode and either strategy. It sets
-the executor queue size to one without altering scientific dependencies,
-inputs, or parameters, and prevents independent large tasks such as MEGAHIT
-and metaSPAdes from occupying disk concurrently. It is a scheduling control,
-not a 500 GB quota or a guarantee: actual peak storage remains dataset- and
-filesystem-dependent and must be checked in the generated telemetry. Enforce
-the site's filesystem quota and first confirm that the largest single task can
-fit, because serialization cannot make an individual assembly smaller.
-
-Use `--resume` to reuse `-resume <UUID>` only when the same stable invocation
-key already has a recorded Nextflow session; a first execution of that key
-starts without `-resume`. Use `--dry-run` to inspect the translated commands.
-The `--` passthrough delimiter is intentionally rejected so internal staged
-parameters cannot be overridden; pass supported pipeline parameters directly.
-Run `./metagenomics_pipeline.sh --help` for the complete interface.
-
-### Optional GPU execution
-
-CPU execution is the default and remains the reference path. `--enable-gpu`
-enables only the three pinned tools with a verified upstream GPU interface:
-
-- COMEBin 1.0.4 with CUDA-visible PyTorch 2.1.2/CUDA 11.8;
-- SemiBin2 1.5.0 with `--engine gpu` and PyTorch 2.1.2/CUDA 11.8;
-- Vamb 5.0.4 with `--cuda` and PyTorch 2.6.0/CUDA 12.4.
-
-Each enabled task requests exactly one GPU; the launcher rejects any other
-`--gpu-accelerators` value. Docker receives `--gpus 1`, while Apptainer and
-Singularity receive `--nv`. For a local Conda, Apptainer, or Singularity run,
-select exactly one device in the launch environment so the task cannot see all
-GPUs on a multi-GPU host:
-
-```bash
-CUDA_VISIBLE_DEVICES=0 ./metagenomics_pipeline.sh --local --conda --run \
-    --input /data/project/samplesheet.csv --enable-gpu
-```
-
-The launcher rejects an absent or comma-separated selector for those three
-local runtime modes. An HPC GPU run must additionally provide the
-site-specific GRES string:
-
-```bash
-./metagenomics_pipeline.sh --hpc --apptainer --run \
-    --database-config /shared/db/metagenomics_databases.config \
-    --input /shared/project/samplesheet.csv \
-    --enable-gpu --gpu-accelerators 1 \
-    --slurm-gpu-gres gpu:a100:1
-```
-
-Build and publish the pinned GPU images before using a container profile:
-
-```bash
-docker build -t metagenomics/comebin-gpu:1.0.4-cuda11.8 containers/comebin-gpu
-docker build -t metagenomics/semibin-gpu:1.5.0-cuda11.8 containers/semibin-gpu
-docker build -t metagenomics/vamb-gpu:5.0.4-cuda12.4 containers/vamb-gpu
-```
-
-Distributed runtimes need registry-visible images; override
-`--comebinGpuContainer`, `--semibinGpuContainer`, and `--vambGpuContainer` when
-the default local tags are not visible to compute nodes. The host must provide
-a compatible NVIDIA driver, and Docker additionally needs the NVIDIA Container
-Toolkit. The corresponding exact-version Conda environments are available for
-the Conda profile.
-
-Before each accelerated scientific command, the wrapper verifies the exact
-PyTorch and CUDA runtime versions shown above, `torch.cuda.is_available()`, and
-exactly one visible CUDA device. A mismatch fails that task instead of silently
-running with a different runtime or falling back to CPU.
-
-GPU training can differ numerically or stochastically from CPU execution, and
-Vamb upstream does not guarantee deterministic training even with a seed. The
-pipeline does not claim bitwise CPU/GPU equivalence or acceleration for any
-other tool; scientific thresholds and non-device options remain unchanged. See
-[docs/gpu_capability_audit.tsv](docs/gpu_capability_audit.tsv) and
-[containers/gpu/README.md](containers/gpu/README.md) for the evidence and build
-contract.
-
-### Direct Nextflow execution
-
-Direct Nextflow execution is supported for the existing-FASTQ samplesheet mode.
-BioProject production must use the launcher because its separate invocations,
-external checkpoints, per-sample work cleanup, and final success gate are part
-of the storage and recovery contract. With a generated database configuration:
-
-```bash
-nextflow -c /data/db/metagenomics_databases.config run . \
-    -profile local,docker \
-    --phylophlan_container registry.example.org/phylophlan-iqtree:3.1.1-3.0.1 \
-    --input /data/project/samplesheet.csv \
-    --outdir /data/project/results
-```
-
-Without that file, provide every required database and license parameter:
-
-```bash
-nextflow run . -profile hpc,apptainer \
-    --input /shared/project/samplesheet.csv \
-    --phylophlan_container registry.example.org/phylophlan-iqtree:3.1.1-3.0.1 \
-    --host_bowtie2_index /shared/db/human/bowtie2/GRCh38_p14 \
-    --checkm2_db /shared/db/checkm2/1.1.0 \
-    --gunc_db /shared/db/gunc/1.0.6/progenomes_2.1/gunc_db_progenomes2.1.dmnd \
-    --gtdbtk_db /shared/db/gtdbtk/release226 \
-    --phylophlan_db /shared/db/phylophlan/phylophlan \
-    --genemark_home /opt/genemarks2-1.15 \
-    --genemark_key /secure/licenses/gm_key \
-    --eggnog_db /shared/db/eggnog/5.0.2 \
-    --interproscan_data /shared/db/interproscan/5.59-91.0/data \
-    --outdir /shared/project/results
-```
-
-### Important parameters
-
-| Parameter | Default | Meaning |
+| Archivo | BioSamples | Grupos |
 | --- | ---: | --- |
-| `--outdir` | `results` | User-facing output root |
-| `--work-dir` | `work` locally; `<sra-scratch-dir>/nextflow-work` for SRA | Nextflow work root |
-| `--input` | unset | Existing FASTQ samplesheet; mutually exclusive with SRA input |
-| `--sra-project` | unset | BioProject membership boundary; requires `--sra-samples` |
-| `--sra-samples` | required with `--sra-project` | Explicit TSV of selected BioSample accessions |
-| `--group-column` | unset | Optional input column whose categorical value is propagated as `group` |
-| `--spades-coassembly-mode` | `global` | `global` or `condition`; condition requires `--group-column` and merges group assemblies before one SPAdes downstream branch |
-| `--sra-checkpoint-dir` | required in SRA mode | External durable non-host read checkpoint root |
-| `--sra-scratch-dir` | required in SRA mode | External disposable acquisition and work root |
-| `--sra-cache-dir` | `<sra-scratch-dir>/sra-cache` | SRA `prefetch` cache |
-| `--sra-temp-dir` | `<sra-scratch-dir>/fasterq-temp` | Uncompressed `fasterq-dump` temporary root |
-| `--sra-email` | unset | Optional NCBI E-utilities contact email |
-| `--sra-platforms` | `ILLUMINA,BGISEQ` | SRA discovery platform allowlist |
-| `--sra-max-size` | `u` | Maximum size value passed to `prefetch` |
-| `--keep-sra-checkpoints` | false | Retain checkpoint FASTQ pairs after validated global success |
-| `--storage-constrained` | false (automatic for SRA except HPC condition) | Select queue-size-one disk scheduling; can explicitly serialize HPC condition tasks |
-| `--resource-sample-interval` | `60` | Storage sampling interval in seconds |
-| `--resource-database-root` | unset | Optional database tree included in storage accounting |
-| `--enable-gpu` | false | Enable only COMEBin, SemiBin2, and Vamb GPU paths |
-| `--gpu-accelerators` | `1` | Per-task GPU request; implemented mode requires exactly one |
-| `--gpu-telemetry-interval` | `10` | Best-effort `nvidia-smi` sampling interval in seconds |
-| `--slurm-gpu-gres` | required for HPC GPU mode | Site-specific SLURM GRES value |
-| `--resume` | false | Reuse the last recorded Nextflow UUID for the same stable invocation key |
-| `--dry-run` | false | Print translated command(s) without execution |
-| `--publish_dir_mode` | `copy` | Nextflow publication mode |
-| `--conda_cache_dir` | unset (`.conda/`) | Conda environment cache; the shown repository path is the effective fallback |
-| `--phylophlan_container` | `metagenomics/phylophlan-iqtree:3.1.1-3.0.1` | Combined PhyloPhlAn 3.1.1 and IQ-TREE 3.0.1 OCI image for container production |
-| `--min_contig_length` | `1500` | Minimum contig length entering binning |
-| `--hq_completeness` | `90.0` | Strict lower bound; MAG must be greater than this |
-| `--hq_contamination` | `5.0` | Strict upper bound; MAG must be less than this |
-| `--derep_ani` | `0.99` | Strain-level dRep secondary ANI |
-| `--species_ani` | `0.95` | Species-level dRep secondary ANI |
-| `--derep_coverage` | `0.30` | Minimum comparable alignment fraction |
-| `--save_clean_reads` | `false` | Publish fastp-cleaned reads |
-| `--save_host_removed_reads` | `true` | Publish final non-host reads |
-| `--save_bam` | `false` | Publish binning BAMs |
-| `--save_intermediates` | `false` | Publish selected large native intermediate directories |
-| `--local_max_jobs` | `2` | Local executor queue size |
-| `--max_cpus` | `32` | Per-task profile resource ceiling |
-| `--max_memory` | `1800 GB` | Per-task profile resource ceiling |
-| `--max_time` | `14d` | Per-task profile resource ceiling |
-| `--slurm_account` | unset | SLURM account |
-| `--slurm_queue` | unset | SLURM partition/queue |
-| `--slurm_qos` | unset | SLURM QoS |
-| `--slurm_cluster_options` | unset | Additional site-specific SLURM options |
-| `--slurm_queue_size` | `100` | Maximum queued SLURM tasks |
+| `assets/raw/PRJNA782492_subset8.tsv` | 8 | 4 PD + 4 CT |
+| `assets/raw/PRJNA782492_metagenomic_samples.tsv` | 95 | Etiquetas originales PD/CT |
 
-In BioProject mode the launcher forces `save_clean_reads=false` and
-`save_host_removed_reads=false` for normal publication because the validated
-external checkpoint is the single durable large-read copy. This does not alter
-the local samplesheet defaults.
+El conjunto completo contiene **95**, confirmado durante el refactor; no se inventó una muestra número 96. El pipeline admite cualquier cantidad de filas. La única selección del conjunto es el manifest, sin ramas de código para ocho muestras.
 
-## Resource telemetry and accounting
+Con Nextflow >=26.04.6, un runtime disponible y las bases de datos ya preparadas, establecer rutas reales:
 
-The launcher starts one storage monitor across the complete project lifecycle
-and registers every Nextflow invocation, including the separate discovery,
-checkpoint, per-sample, and global invocations used by BioProject mode. Each
-invocation has its own log, trace, report, timeline, and DAG under
-`pipeline_info/invocations/`; the registry and final merger prevent one stage
-from overwriting another.
-
-Accounting is emitted at four aggregation levels:
-
-| Level | Primary output | Contents |
-| --- | --- | --- |
-| Task | `pipeline_info/resources/resource_usage_by_task.tsv` | Requested resources, runtime, CPU, RSS/VMEM, I/O, sampled task-work peak, accelerator request, GPU observations, status, invocation, and raw trace fields |
-| Process | `pipeline_info/resources/resource_usage_by_process.tsv` | Executed/cached counts, requested-versus-observed resources, CPU-hours, memory efficiency, maximum individual task-work peak, sampled concurrent process-work peak, I/O, and GPU aggregates |
-| Subworkflow | `pipeline_info/resources/resource_usage_by_subworkflow.tsv` | The same aggregates plus process counts, sampled concurrent work, and the sampled whole-stage dynamic peak available for SRA preprocessing |
-| Project | `pipeline_info/resources/resource_usage_summary.{tsv,json,html}` | Outcome, wall time, total consumption, dynamic and per-category storage peaks, largest consumers, coverage, GPU, SLURM, warnings, and limitations |
-
-`pipeline_info/execution_trace.tsv` is the merged provenance-preserving trace,
-while `pipeline_info/resources/trace_registry.tsv` binds each source trace to
-its invocation/session/stage and completion status. Cached rows remain visible
-but contribute zero resource consumption; duplicate registered trace rows are
-excluded. This makes resumed and multi-invocation runs additive without
-counting a cached task as newly executed work.
-
-The principal formulas use task realtime in seconds:
-
-- allocated CPU-hours = `requested_cpus * realtime / 3600`;
-- observed CPU-hours = `(%cpu / 100) * realtime / 3600`;
-- observed CPU efficiency = `observed_cpu_hours / allocated_cpu_hours` for
-  tasks with a CPU measurement;
-- requested GPU-hours = `requested_accelerators * realtime / 3600`.
-
-Cumulative task time is a sum and may exceed wall-clock time when tasks overlap.
-Project wall time is the earliest registered invocation start through the latest
-finish, with trace task bounds used only when registry timestamps are
-incomplete.
-
-`storage_usage_timeseries.tsv` samples allocated filesystem bytes without
-following symbolic links for work, durable checkpoints, SRA cache, acquisition
-scratch, fasterq temporary files, and results. Every row carries the current
-launcher invocation and stage. It records both per-category peaks and
-`total_dynamic_bytes`, which excludes the immutable database tree.
-The optional database root is measured once in the background and reported
-separately when that measurement completes, so a large database scan does not
-delay dynamic sampling or inflate the working-storage peak.
-`task_workdir_peaks.tsv` preserves the largest observed size of each Nextflow
-task directory across samples. `task_workdir_timeseries.tsv` retains each
-same-timestamp task-directory sample; the summarizer joins those paths to trace
-tasks and sums concurrent members of a process or outer scientific scope.
-
-`--resource-sample-interval` controls periodic sampling; the default is 60
-seconds. The launcher additionally uses a bounded request/acknowledgement
-sample before deleting completed SRA sample work, validated checkpoint reads,
-or successful global work, and takes a final sample during shutdown.
-
-In GPU mode each enabled process writes `gpu_tasks/*.gpu_metrics.tsv` from
-best-effort `nvidia-smi` sampling at the configurable
-`--gpu-telemetry-interval` (10 seconds by default). Filenames and rows carry the Nextflow session
-ID and task attempt; the merger joins on session, process, sample/tag, and
-attempt so retries from separate invocations are not misattributed. It reports
-device models, mean and maximum utilization, peak observed device memory, and
-sample coverage. On HPC, the launcher makes one globally bounded 60-second
-attempt, shared by all query batches, to collect `sacct` records by native job
-ID into `slurm_accounting.tsv`; collection
-state and errors are persisted separately in
-`slurm_accounting.status.json`. Timeout, unavailable, empty, and failed states
-remain explicit. This enrichment never replaces the portable Nextflow trace.
-
-Telemetry is observational, not a scheduler guarantee. Sampled concurrent
-process/subworkflow work excludes external SRA cache/scratch/temp categories,
-while the SRA-preprocessing stage peak includes all configured dynamic roots at
-that stage. Sampling can miss a short disk or GPU spike; GPU utilization is
-device-wide within the task's
-visible device set rather than a per-PID measurement; trace RSS, CPU, I/O,
-queue, host, and accelerator fields depend on executor/Nextflow availability;
-`nvidia-smi` and `sacct` may be unavailable; and a forced process or machine
-termination can prevent the final sample. Input FASTQ files outside the
-configured roots are not included. Published output size cannot be attributed
-reliably to a process or subworkflow and is therefore reported at storage/project
-scope rather than fabricated at those levels. Missing measurements are reported
-as limitations rather than invented as zero or used to change scientific
-success.
-
-Historical SLURM CPU/RAM requests and their current selectors are mapped in
-[docs/original_resource_mapping.tsv](docs/original_resource_mapping.tsv). In
-particular, the recovered metaSPAdes request is 32 CPUs and 1,800 GB RAM.
-Historical scripts did not provide elapsed-time requests and requested no GPUs;
-the audit records those facts explicitly as `not recorded` and `none requested`.
-Current time limits are identified as policy fallbacks, not benchmarks.
-
-## Results
-
-Within each invocation, processes exchange files through Nextflow channels and
-work directories. Separate BioProject invocations meet only at the validated
-external checkpoint boundary. No downstream stage reads its inputs back from
-the published results directory.
-
-```text
-results/
-|-- 01_quality_control_and_filtering/
-|   |-- fastqc/raw/<sample>/
-|   |-- fastp/<sample>/
-|   |-- fastqc/clean/<sample>/
-|   `-- host_removal/<sample>/
-|-- 02_mag_construction/
-|   |-- megahit/
-|   |   |-- assembly/metaquast/
-|   |   |-- binning/{coverage,comebin,metabat2,semibin2,vamb,dastool}/
-|   |   `-- refinement/{raw,high_quality,drep_99,species_95,clean}/
-|   |-- spades/
-|   |   |-- assembly/metaquast/
-|   |   |-- binning/{coverage,comebin,metabat2,semibin2,vamb,dastool}/
-|   |   `-- refinement/{raw,high_quality,drep_99,species_95,clean}/
-|   `-- final_catalog/
-|       |-- final_catalog/*.fa
-|       |-- final_catalog.provenance.tsv
-|       |-- final_catalog.quality.tsv
-|       |-- drep_99/
-|       |-- species_95/
-|       `-- evaluation/{checkm2,gunc}/
-|-- 03_taxonomic_classification_and_phylogenomics/
-|   |-- gtdbtk/
-|   `-- phylophlan/
-|-- 04_gene_prediction_and_functional_annotation/
-|   |-- genemarks2/<MAG>/
-|   |-- eggnog_mapper/<MAG>/
-|   |-- interproscan/<MAG>/
-|   `-- integrated/<MAG>/
-|-- 05_mag_abundance_estimation/
-|-- 06_global_processing_evaluation/
-`-- pipeline_info/
-    |-- execution_trace.tsv
-    |-- software_versions.tsv
-    |-- invocations/<run_token>_<stage>/
-    |-- resources/
-    |   |-- trace_registry.tsv
-    |   |-- resume_sessions.tsv
-    |   |-- storage_usage_timeseries.tsv
-    |   |-- task_workdir_peaks.tsv
-    |   |-- task_workdir_timeseries.tsv
-    |   |-- resource_usage_by_{task,process,subworkflow}.tsv
-    |   |-- gpu_tasks/*.gpu_metrics.tsv          # GPU mode
-    |   |-- slurm_accounting.tsv                 # best-effort HPC enrichment
-    |   |-- slurm_accounting.status.json         # collection state/error
-    |   `-- resource_usage_summary.{tsv,json,html}
-    `-- sra/                         # BioProject mode only
-        |-- sra_project_{runinfo.csv,manifest.tsv,exclusions.tsv,summary.json}
-        |-- sra_sample_manifest.tsv
-        |-- sra_requested_samples.tsv
-        |-- sample_metadata.tsv
-        |-- sra_{checkpoint_manifest.tsv,pending_samples.tsv,checkpoint_status.json}
-        |-- sra_checkpoint_sample_metadata.tsv
-        `-- sra_global_success.json       # full scientific-output hash inventory
+```bash
+DB_CONFIG=/ruta/real/metagenomics_databases.config
+RUN_ROOT=/ruta/persistente/PRJNA782492
 ```
 
-The external SRA checkpoint root has a deliberately small, stable interface:
+Validación inicial, ocho muestras:
 
-```text
-<sra-checkpoint-dir>/
-|-- sra_checkpoint_owner.json        # immutable project/cohort ownership
-|-- reads/<sample>_host_removed_R{1,2}.fastq.gz
-|-- reports/<sample>/...
-|-- records/<sample>.checkpoint.json
-`-- sra_checkpoint_cleanup.json       # after validated default cleanup
+```bash
+bash metagenomics_pipeline.sh --hpc --apptainer --run \
+  --sra-project PRJNA782492 \
+  --sra-samples assets/raw/PRJNA782492_subset8.tsv \
+  --group-column group --database-config "$DB_CONFIG" \
+  --outdir "$RUN_ROOT/results" --work-dir "$RUN_ROOT/work"
 ```
 
-After normal global success, the `reads/` files are absent unless
-`--keep-sra-checkpoints` was used; reports, completion records, frozen state,
-and cleanup provenance remain available for audit.
+Conjunto completo, mismo código y opciones:
 
-Key deliverables include:
+```bash
+bash metagenomics_pipeline.sh --hpc --apptainer --run \
+  --sra-project PRJNA782492 \
+  --sra-samples assets/raw/PRJNA782492_metagenomic_samples.tsv \
+  --group-column group --database-config "$DB_CONFIG" \
+  --outdir "$RUN_ROOT/results" --work-dir "$RUN_ROOT/work"
+```
 
-- final MAG FASTA files plus provenance and quality tables;
-- final CheckM2 and GUNC summaries;
-- 99% and 95% dRep cluster tables and representative sets;
-- GTDB-Tk bacterial and archaeal classifications;
-- PhyloPhlAn concatenated alignment and final Newick tree;
-- per-MAG GeneMarkS-2 predictions, eggNOG and InterProScan native outputs, and
-  integrated functional tables;
-- CoverM wide abundance output and normalized long-form abundance table, with
-  one validated row per completed sample and final-catalog MAG;
-- `global_processing_evaluation.multiqc.html` and its MultiQC data directory;
-- Nextflow report, timeline, trace, DAG, local-mode normalized samplesheet, and
-  `software_versions.tsv` under `pipeline_info/`;
-- the four-level resource summaries and raw storage/GPU/SLURM telemetry described
-  above;
-- in BioProject mode, the frozen cohort, checkpoint reconciliation, and
-  global-success marker containing the complete scientific-output hash
-  inventory.
+Para ampliar una ejecución previa, añadir `--resume` y conservar directorio de lanzamiento, `work/` y caché. Para comparar resultados independientes, utilizar otro `RUN_ROOT`. Una ampliación recalcula las coasambleas y análisis dependientes del conjunto; las tareas por muestra cuyos inputs y metadata permanecen iguales pueden reutilizarse.
 
-## Repository policy
+También se puede ejecutar sin launcher:
 
-- `modules/core/` contains project-maintained reusable bioinformatics modules.
-- `modules/local/` and `bin/` contain transparent pipeline-specific helpers.
-- nf-core is an implementation reference only; no `modules/nf-core` code is
-  vendored.
-- Generated reads, databases, containers, work directories, and results are not
-  committed.
-- GeneMark licenses, private site configuration, and machine-specific
-  samplesheets must remain outside Git.
+```bash
+nextflow -c "$DB_CONFIG" run main.nf -profile hpc,apptainer \
+  --sraProject PRJNA782492 --sraSamples assets/raw/PRJNA782492_subset8.tsv \
+  --groupColumn group --outdir "$RUN_ROOT/results" -work-dir "$RUN_ROOT/work"
+```
+
+## Preprocesamiento y decisiones científicas
+
+Se mantienen los módulos y argumentos científicos existentes:
+
+1. SRA Toolkit 3.4.1: `prefetch`, `vdb-validate`, `fasterq-dump --split-files --skip-technical`; validación completa de estructura FASTQ, IDs, mates y longitudes mediante AWK; compresión y comprobación CRC con pigz 2.8. Los singleton reads se descartan, como en la entrada paired-end anterior.
+2. FastQC 0.12.1 sobre reads raw. fastp 1.0.1 conserva Q30, longitud mínima 30 nt, detección de adaptadores paired-end, recorte poly-G/poly-X y ventana derecha de cuatro bases con calidad media Q30. FastQC vuelve a evaluar las reads limpias.
+3. Bowtie2 2.5.4 conserva `--very-sensitive-local --phred33` y genera las reads no humanas de **cada muestra**, usando el índice humano externo.
+4. MEGAHIT y metaSPAdes mantienen sus coasambleas y MetaQUAST. CoverM conserva cobertura y BAMs; COMEBin, MetaBAT2, SemiBin2 y Vamb alimentan DAS Tool.
+5. CheckM2 y GUNC evalúan los bins. La selección HQ conserva completitud >90% y contaminación <5%. dRep conserva 99% ANI, agrupación de especies al 95% y cobertura mínima 30%; se integra y evalúa el catálogo final.
+6. Se conservan GTDB-Tk, PhyloPhlAn con IQ-TREE, GeneMarkS-2, eggNOG-mapper, InterProScan, integración funcional y abundancia CoverM. La tabla larga conserva grupos y excluye la fila especial `unmapped` sin renormalizar MAGs.
+7. MultiQC 1.35 conserva `multiqc_output/multiqc_report_data` y publica HTML y datos.
+
+`--spades-coassembly-mode global` es el valor predeterminado. `condition` requiere `--group-column`, agrupa las reads no humanas por etiqueta, ejecuta metaSPAdes por grupo y reúne contigs con procedencia. MEGAHIT conserva su coasamblea global. La validación previa rechaza grupos vacíos e identificadores de grupo que colisionen al convertirse en nombres de archivo. Este refactor no cambia esa decisión científica.
+
+## Paralelismo y SLURM
+
+`conf/hpc.config` conserva el executor SLURM, cuenta, partición, QoS, límites de recursos y `slurm_queue_size`. No se especifican nodos de Hypatia. Los recursos científicos posteriores se mantienen, incluido metaSPAdes con 32 CPUs y 1800 GB de RAM.
+
+`--sra-download-max-forks N` (`sraDownloadMaxForks`, predeterminado 4) limita las tareas de adquisición concurrentes; no limita el número total de muestras. La cola y los recursos disponibles pueden reducir esa concurrencia. Los pasos FastQC, fastp y Bowtie2 reciben tareas por muestra. SRA ya no selecciona automáticamente el perfil de almacenamiento limitado.
+
+Los perfiles `local`, `hpc`, `docker`, `conda`, `apptainer`, `singularity` y `gpu` se conservan. El modo GPU mantiene sus imágenes, argumentos y requisitos de GRES. El executor local limita la cola a una tarea cuando se activa GPU para conservar el acceso exclusivo al dispositivo.
+
+## Reanudación y almacenamiento limitado
+
+Añadir `--resume` al mismo comando del launcher; se traduce a `nextflow -resume`. Nextflow directo también permite `-resume <UUID>` para elegir una sesión concreta. El directorio de lanzamiento contiene la caché `.nextflow/`; `-work-dir` contiene los outputs que esa caché referencia. Ambos deben permanecer accesibles. No hay un planificador externo, una cola de pendientes ni archivos de estado por muestra.
+
+Se conservan en `work/` los FASTQ comprimidos declarados por adquisición, reunión de runs, fastp y Bowtie2, además de los demás outputs declarados. Los reports y las reads no humanas se publican con las opciones existentes; las reads no humanas se copian por defecto. Las publicaciones son entregables y no sustituyen automáticamente a los outputs de caché. Se rechaza `publish_dir_mode=move` porque elimina archivos que Nextflow necesita para reanudar.
+
+`--storage-constrained` selecciona `disk_efficient`: una adquisición simultánea y `storage_max_jobs=2` tareas en la cola, configurables con un archivo de configuración o parámetros nativos. Otra muestra puede estar preprocesándose mientras se adquiere el siguiente run. No se impone una barrera entre muestras o etapas.
+
+La reducción de espacio se consigue comprimiendo cada run, evitando copias del merge de un solo run, eliminando SRA/plain FASTQ/temporales internos después de validar la salida y limitando concurrencia. **Los outputs de caché se conservan: el espacio mínimo crece con el dataset.** Este modo ya no reproduce la huella mínima del antiguo borrado de `work/`; evita que esa limpieza obligue a repetir descargas al reanudar. Revisar capacidad para reads raw, trimmed, no humanas y coasambleas antes de las 95 muestras.
+
+`--sra-scratch-dir PATH` es opcional y usa la directiva `scratch` de Nextflow para adquisición. Nextflow crea un directorio de tarea, devuelve los outputs declarados al `work/` persistente y limpia ese scratch. En SLURM, `work/` y resultados deben ser almacenamiento compartido; comprobar montajes y capacidad del scratch en los nodos. No borrar manualmente `work/`, la caché, ni outputs publicados que se quieran conservar mientras se necesite reanudar.
+
+Las sesiones de la arquitectura anterior tienen nombres de procesos y límites de caché diferentes; no se garantiza reutilización de su caché. Los resultados o FASTQ antiguos no se importan basándose sólo en su nombre. Usar una ubicación de resultados nueva para la primera validación del refactor. El refactor local no modifica ningún archivo de Hypatia.
+
+## Configuración y recursos externos
+
+La configuración de bases de datos existente debe definir `host_bowtie2_index`, `checkm2_db`, `gunc_db`, `gtdbtk_db`, `phylophlan_db`, `genemark_home`, `genemark_key`, `eggnog_db` e `interproscan_data`. Se conserva `assets/phylophlan_iqtree.cfg` y los ajustes específicos ya existentes de InterProScan. La instalación/licencia de GeneMark es externa.
+
+`bin/prepare_databases.sh` y `bin/prepare_containers.sh` son utilidades operativas conservadas para preparar recursos por separado. Consultar su `--help`. No forman una cola de muestras y no se ejecutan automáticamente para resolver inputs. La adquisición utiliza SRA Toolkit, pigz, Bash y AWK. La receta SRA añade gawk explícitamente: verificar que una imagen previamente cacheada incluya `awk` y reconstruirla si falta. No se construyeron ni descargaron imágenes durante el refactor.
+
+El launcher conserva observadores opcionales de almacenamiento, SLURM y resúmenes de recursos. `--no-resource-telemetry` permite ejecutar sin Python en el host de lanzamiento. Los observadores nunca seleccionan muestras ni deciden qué tareas ejecutar. Sus registros son informativos, no mecanismos de reanudación. Los informes nativos se configuran en `conf/base.config`; se mantiene la desactivación previa de trace/report/timeline en HPC, por lo que algunas métricas pueden no estar disponibles allí.
+
+## Resultados y estructura
+
+```text
+assets/raw/         manifests de 8 y 95 BioSamples
+bin/                transformaciones científicas y utilidades operativas
+conf/               perfiles, recursos y publicación
+containers/         recetas de imágenes mantenidas por el proyecto
+lib/                validación de metadata y agrupación Groovy
+modules/core/       herramientas bioinformáticas reutilizables
+modules/local/      integración, catálogos, metadata SRA y reunión de runs
+subworkflows/local/ entrada, preprocesamiento y etapas científicas
+workflows/          selección de entrada local/SRA
+```
+
+Los directorios de resultados `01_quality_control_and_filtering` a `06_global_processing_evaluation` conservan su estructura. `pipeline_info/` añade la tabla común `sample_metadata.tsv`, `sra_exclusions.tsv`, el RunInfo recuperado y logs SRA; conserva versiones de software e informes de ejecución. Las columnas adicionales del manifest siguen presentes en la tabla de metadata. La tabla larga de abundancia mantiene el contrato científico previo, incluidos `sample_id` y `group`.
+
+Los auxiliares Python restantes, su justificación, la auditoría de archivos retirados y las limitaciones de validación se describen en [docs/refactor_review.md](docs/refactor_review.md). La arquitectura detallada está en [docs/architecture.md](docs/architecture.md); las auditorías de recursos, compresión y capacidades GPU conservan sus referencias científicas.
+
+## Validación ligera
+
+Sin ejecutar herramientas ni descargar reads o bases de datos:
+
+```bash
+nextflow -version
+nextflow config -profile hpc,apptainer -flat
+nextflow config -profile hpc,apptainer,disk_efficient -flat
+nextflow inspect . -profile hpc,apptainer
+bash -n metagenomics_pipeline.sh
+git diff --check
+```
+
+`nextflow inspect` no debe llevar `-concretize`, que construiría imágenes. No se ofrece un `-stub-run` integral: los módulos científicos posteriores no tienen stubs completos. La primera ejecución científica será la validación de ocho muestras en Hypatia, después de revisar el diff.

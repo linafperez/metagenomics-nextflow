@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate condition metadata, bind strategy state, and merge SPAdes FASTAs."""
+"""Merge condition SPAdes FASTAs with group-aware contig provenance."""
 
 from __future__ import annotations
 
@@ -27,60 +27,6 @@ def validate_groups(groups: list[str]) -> None:
         if key in seen and seen[key] != group:
             raise ValueError(f"SPAdes group filename collision: {seen[key]!r} and {group!r}")
         seen[key] = group
-
-
-def validate_input(args: argparse.Namespace) -> None:
-    if not args.group_column:
-        raise ValueError("--spades-coassembly-mode condition requires --group-column")
-    id_column = "sample" if args.kind == "local" else "biosample_accession"
-    if args.group_column == id_column or (args.kind == "local" and args.group_column in {"fastq_1", "fastq_2"}):
-        raise ValueError("An input identity/read column cannot also be the group column")
-    with args.input.open(encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter="," if args.kind == "local" else "\t")
-        fields = reader.fieldnames or []
-        if len(fields) != len(set(fields)):
-            raise ValueError("Condition input contains duplicate column names")
-        if id_column not in fields or args.group_column not in fields:
-            raise ValueError(f"Condition input requires columns {id_column!r} and {args.group_column!r}")
-        groups: list[str] = []
-        samples: set[str] = set()
-        for line, row in enumerate(reader, 2):
-            if None in row:
-                raise ValueError(f"Condition input line {line} contains unexpected extra fields")
-            sample = (row.get(id_column) or "").strip()
-            if args.kind == "sra":
-                sample = sample.upper()
-            if not sample or sample in samples:
-                raise ValueError(f"Condition input line {line} has empty or duplicate/ambiguous sample ID {sample!r}")
-            samples.add(sample)
-            # Same whitespace normalization as the existing input validators.
-            groups.append((row.get(args.group_column) or "").strip())
-        validate_groups(groups)
-
-
-def bind_strategy(args: argparse.Namespace) -> None:
-    """Fail closed when a results root belongs to a different assembly strategy."""
-    root = args.results_dir.resolve()
-    info = root / "pipeline_info"
-    record = info / "spades_coassembly_strategy.json"
-    expected = {"schema_version": 1, "spades_coassembly_mode": args.mode,
-                "group_column": args.group_column if args.mode == "condition" else ""}
-    if record.exists():
-        if json.loads(record.read_text(encoding="utf-8")) != expected:
-            raise ValueError("Results root uses a different SPAdes strategy/group column; use a fresh --outdir for the comparison")
-        return
-    success = info / "sra" / "sra_global_success.json"
-    if success.exists():
-        old = json.loads(success.read_text(encoding="utf-8"))
-        if old.get("spades_coassembly_mode", "global") != args.mode:
-            raise ValueError("Existing SRA success marker uses a different SPAdes strategy; use a fresh --outdir")
-    if args.mode == "condition" and any(root.glob("02_mag_construction/**/*")):
-        raise ValueError("Existing scientific results have no strategy record; legacy results are global. Use a fresh --outdir for condition mode")
-    info.mkdir(parents=True, exist_ok=True)
-    # Exclusive creation, under the launcher's results lock; never overwrite state.
-    with record.open("x", encoding="utf-8", newline="\n") as handle:
-        json.dump(expected, handle, indent=2, sort_keys=True)
-        handle.write("\n")
 
 
 def merge(args: argparse.Namespace) -> None:
@@ -130,21 +76,13 @@ def merge(args: argparse.Namespace) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    validate = commands.add_parser("validate-input")
-    validate.add_argument("--input", type=Path, required=True)
-    validate.add_argument("--kind", choices=["local", "sra"], required=True)
-    validate.add_argument("--group-column", required=True)
-    bind = commands.add_parser("bind-strategy")
-    bind.add_argument("--results-dir", type=Path, required=True)
-    bind.add_argument("--mode", choices=["global", "condition"], required=True)
-    bind.add_argument("--group-column", default="")
     combine = commands.add_parser("merge")
     combine.add_argument("--manifest", type=Path, required=True)
     combine.add_argument("--output", type=Path, required=True)
     combine.add_argument("--provenance", type=Path, required=True)
     args = parser.parse_args()
     try:
-        {"validate-input": validate_input, "bind-strategy": bind_strategy, "merge": merge}[args.command](args)
+        merge(args)
     except (OSError, ValueError, KeyError, TypeError, csv.Error) as exc:
         print(f"ERROR: SPAdes coassembly: {exc}", file=sys.stderr)
         return 1

@@ -1,11 +1,16 @@
-# SRA preprocessing image
+# SRA Toolkit image
 
-This image pins NCBI SRA Toolkit 3.4.1, pigz 2.8, and Python 3.12.11 for
-`SRATOOLS_ACQUIRE`. Build it before production use and publish it under the value of
-`params.sraContainer` (default: `metagenomics/sra-tools:3.4.1-pigz-2.8`).
+This image provides NCBI SRA Toolkit 3.4.1 and pigz 2.8 for the per-run
+`SRATOOLS_ACQUIRE` and per-BioSample `MERGE_SRA_RUNS` processes. Acquisition uses
+Bash/AWK and SRA Toolkit directly; it does not use a Python sample controller.
+The environment explicitly supplies gawk. Existing images remain compatible if
+they provide the pinned toolkit/pigz versions and an `awk` executable, even if
+they also contain Python. Check this before using a previously cached image;
+rebuild the recipe if it lacks AWK. No image was built or pulled during refactoring.
 
 ```bash
-docker build -t metagenomics/sra-tools:3.4.1-pigz-2.8 containers/sra-tools
+docker build -t ghcr.io/linafperez/metagenomics-sra-tools:3.4.1-pigz-2.8 containers/sra-tools
 ```
 
-Building or pulling this image is intentionally not part of repository tests.
+Build/pull operations are separate from static validation. The metadata-only
+`FETCH_SRA_RUNINFO` task has its own Python environment and container.
