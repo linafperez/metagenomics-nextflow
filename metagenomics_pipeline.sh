@@ -4,10 +4,9 @@ set -euo pipefail
 readonly PIPELINE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 environment="" runtime="" mode="" database_config="" db_root=""
 outdir="results" work_dir="${PWD}/work" dry_run=false resume=false
-storage_constrained=false enable_gpu=false telemetry=true
-resource_sample_interval=60 resource_database_root=""
-input_path="" sra_project="" sra_samples="" sra_scratch="" slurm_gpu_gres=""
-monitor_pid="" lock_dir="" run_token="$(date -u +%Y%m%dT%H%M%SZ)_$$"
+storage_constrained=false enable_gpu=false
+input_path="" sra_project="" sra_samples="" slurm_gpu_gres=""
+lock_dir="" run_token="$(date -u +%Y%m%dT%H%M%SZ)_$$"
 declare -a args=() profiles=()
 
 usage() {
@@ -38,9 +37,6 @@ Options:
   --gpu-accelerators N        One GPU per task (only 1 is supported).
   --gpu-telemetry-interval N  GPU sampling interval (default: 10 seconds).
   --slurm-gpu-gres VALUE      Explicit site-specific SLURM GRES.
-  --resource-sample-interval N  Storage sampling interval (default: 60 seconds).
-  --resource-database-root PATH  Optional shared database measurement root.
-  --no-resource-telemetry     Disable optional Python observers on the launch host.
   --resume                    Forward native Nextflow -resume (same launch directory).
   --dry-run                   Print the single command without writes or execution.
   --version | --help
@@ -62,7 +58,7 @@ while (($#)); do
     if [[ "$1" == --*=* ]]; then
         option="${1%%=*}"; value="${1#*=}"; shift
         case "$option" in
-            --local|--hpc|--docker|--conda|--apptainer|--singularity|--run|--prepare-databases|--storage-constrained|--enable-gpu|--no-resource-telemetry|--resume|--dry-run)
+            --local|--hpc|--docker|--conda|--apptainer|--singularity|--run|--prepare-databases|--storage-constrained|--enable-gpu|--resume|--dry-run)
                 die "$option is a flag and takes no value" ;;
         esac
         set -- "$option" "$value" "$@"
@@ -71,15 +67,13 @@ while (($#)); do
         --local|--hpc) select_one "$environment" "${1#--}" environment; environment="${1#--}" ;;
         --docker|--conda|--apptainer|--singularity) select_one "$runtime" "${1#--}" runtime; runtime="${1#--}" ;;
         --run|--prepare-databases) select_one "$mode" "${1#--}" mode; mode="${1#--}" ;;
-        --database-config|--outdir|--work-dir|--db-root|--resource-database-root|--resource-sample-interval)
+        --database-config|--outdir|--work-dir|--db-root)
             option="$1"; require_value "$1" "${2:-}"; value="$2"; shift
             case "$option" in
                 --database-config) database_config="$value" ;;
                 --outdir) outdir="$value" ;;
                 --work-dir) work_dir="$value" ;;
                 --db-root) db_root="$value" ;;
-                --resource-database-root) resource_database_root="$value" ;;
-                --resource-sample-interval) resource_sample_interval="$value" ;;
             esac ;;
         --input|--sra-project|--sra-samples|--group-column|--spades-coassembly-mode|--sra-run-info|--sra-download-max-forks|--sra-scratch-dir|--sra-platforms|--sra-max-size|--sra-email|--gpu-accelerators|--gpu-telemetry-interval|--slurm-gpu-gres)
             option="$1"; require_value "$1" "${2:-}"; value="$2"; shift
@@ -91,7 +85,7 @@ while (($#)); do
                 --spades-coassembly-mode) key=spadesCoassemblyMode ;;
                 --sra-run-info) key=sraRunInfo ;;
                 --sra-download-max-forks) key=sraDownloadMaxForks ;;
-                --sra-scratch-dir) sra_scratch="$value"; key=sraScratchDir ;;
+                --sra-scratch-dir) key=sraScratchDir ;;
                 --sra-platforms) key=sraPlatforms ;;
                 --sra-max-size) key=sraMaxSize ;;
                 --sra-email) key=sraEmail ;;
@@ -102,7 +96,6 @@ while (($#)); do
             args+=("--$key" "$value") ;;
         --storage-constrained) storage_constrained=true ;;
         --enable-gpu) enable_gpu=true ;;
-        --no-resource-telemetry) telemetry=false ;;
         --resume) resume=true ;;
         --dry-run) dry_run=true ;;
         --version) printf 'metagenomics_pipeline.sh 3.0.0\nNextflow >=26.04.6\n'; exit 0 ;;
@@ -125,7 +118,6 @@ fi
 [[ -z "$input_path" || ( -z "$sra_project" && -z "$sra_samples" ) ]] || die 'input modes are mutually exclusive'
 [[ -z "$database_config" || -r "$database_config" ]] || die 'database configuration is not readable'
 [[ "$environment" != hpc || "$runtime" != docker ]] || die 'Docker is not supported by this SLURM launcher'
-[[ "$resource_sample_interval" =~ ^(0*[1-9][0-9]*|[0-9]*\.[0-9]*[1-9][0-9]*)$ ]] || die 'storage sample interval must be positive'
 profiles=("$environment" "$runtime")
 [[ "$storage_constrained" == true ]] && profiles+=(disk_efficient)
 if [[ "$enable_gpu" == true ]]; then
@@ -150,12 +142,11 @@ outdir="$(absolute_path "$outdir")"
 work_dir="$(absolute_path "$work_dir")"
 info="$outdir/pipeline_info"
 invocation="$info/invocations/$run_token"
-stage=local; [[ -z "$sra_project" ]] || stage=sra
 command=(nextflow -log "$invocation/nextflow.log")
 [[ -z "$database_config" ]] || command+=(-c "$(absolute_path "$database_config")")
 command+=(run "$PIPELINE_ROOT" -profile "$(IFS=,; printf '%s' "${profiles[*]}")" -work-dir "$work_dir")
 [[ "$resume" == false ]] || command+=(-resume)
-command+=(--outdir "$outdir" --telemetryDir "$invocation" "${args[@]}")
+command+=(--outdir "$outdir" --reportsDir "$invocation" "${args[@]}")
 if [[ "$dry_run" == true ]]; then print_command "${command[@]}"; exit 0; fi
 command -v nextflow >/dev/null || die 'Nextflow is not available on PATH'
 case "$runtime" in
@@ -163,36 +154,14 @@ case "$runtime" in
     docker) docker info >/dev/null 2>&1 || die 'Docker daemon is unavailable' ;;
     *) command -v "$runtime" >/dev/null || die "$runtime is not available" ;;
 esac
-[[ "$telemetry" == false ]] || command -v python3 >/dev/null || die 'Python observers require python3; use --no-resource-telemetry to disable them'
 mkdir -p -- "$info"
 lock_dir="$info/.metagenomics_run.lock"
 mkdir -- "$lock_dir" 2>/dev/null || die "results lock exists: $lock_dir; inspect it before removing a stale lock"
 printf '%s\n' "$run_token" > "$lock_dir/owner"
-started=""
 finish() {
-    local code="$?" session_id="" status=failed manifest="${input_path:-$sra_samples}"
+    local code="$?"
     trap - EXIT
     set +e
-    if [[ -n "$monitor_pid" ]]; then
-        : > "$info/resources/.stop_$run_token"
-        wait "$monitor_pid"
-        rm -f -- "$info/resources/.stop_$run_token"
-    fi
-    if [[ "$telemetry" == true ]]; then
-        [[ "$code" -ne 0 ]] || status=complete
-        session_id="$(sed -nE 's/.*Session UUID:[[:space:]]*([[:alnum:]-]+).*/\1/p' "$invocation/nextflow.log" | tail -n 1)"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\ttrue\t%s\t%s\t%s\n' "$run_token" "$invocation/execution_trace.tsv" "$session_id" "$stage" "$started" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PWD" "$status" "$code" >> "$info/resources/trace_registry.tsv"
-        printf '{"status":"%s","exit_code":%s}\n' "$status" "$code" > "$info/resources/project_status.json"
-        [[ ! -s "$info/sample_metadata.tsv" ]] || manifest="$info/sample_metadata.tsv"
-        if [[ "$environment" == hpc ]]; then
-            python3 "$PIPELINE_ROOT/bin/collect_slurm_accounting.py" --registry "$info/resources/trace_registry.tsv" --output "$info/resources/slurm_accounting.tsv" || true
-        fi
-        python3 "$PIPELINE_ROOT/bin/summarize_resources.py" --registry "$info/resources/trace_registry.tsv" --output-dir "$info" \
-            --task-peaks "$info/resources/task_workdir_peaks.tsv" --task-work-timeseries "$info/resources/task_workdir_timeseries.tsv" \
-            --storage-timeseries "$info/resources/storage_usage_timeseries.tsv" --project-status "$info/resources/project_status.json" \
-            --gpu-metrics-dir "$info/resources/gpu_tasks" --slurm-accounting "$info/resources/slurm_accounting.tsv" \
-            --input-manifest "$manifest" --manifest-mode "$stage" || printf 'Warning: resource summary unavailable; raw telemetry retained.\n' >&2
-    fi
     if [[ -f "$lock_dir/owner" && "$(cat "$lock_dir/owner")" == "$run_token" ]]; then
         rm -- "$lock_dir/owner"
         rmdir -- "$lock_dir"
@@ -203,17 +172,4 @@ trap finish EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 mkdir -p -- "$invocation" "$work_dir"
-started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-if [[ "$telemetry" == true ]]; then
-    mkdir -p -- "$info/resources"
-    registry="$info/resources/trace_registry.tsv"
-    if [[ ! -s "$registry" ]]; then
-        printf 'invocation_id\ttrace_path\tsession_id\tstage\tstarted_at\tfinished_at\ttrace_raw\tlaunch_dir\tstatus\texit_code\n' > "$registry"
-    fi
-    monitor=(python3 "$PIPELINE_ROOT/bin/monitor_storage.py" --output-dir "$info/resources" --work-dir "$work_dir" --results-dir "$outdir" --stop-file "$info/resources/.stop_$run_token" --interval-seconds "$resource_sample_interval")
-    [[ -z "$resource_database_root" ]] || monitor+=(--database-dir "$(absolute_path "$resource_database_root")")
-    [[ -z "$sra_scratch" ]] || monitor+=(--sra-scratch-dir "$(absolute_path "$sra_scratch")")
-    "${monitor[@]}" &
-    monitor_pid=$!
-fi
 "${command[@]}"

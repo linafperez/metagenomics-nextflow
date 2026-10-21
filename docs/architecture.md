@@ -53,7 +53,7 @@ Esta política preserva reanudación sin descargas repetidas para tareas cachead
 
 El modo GPU mantiene imágenes, versiones y GRES existentes. La cola local de una tarea al habilitar GPU conserva el acceso exclusivo al dispositivo. Los límites de concurrencia no crean dependencias científicas artificiales.
 
-Los tres auxiliares opcionales de recursos observan almacenamiento, `sacct` y trazas para informes. Sus datos no se usan para seleccionar, omitir o reordenar muestras. No hay registros externos de reanudación. La configuración HPC previa desactiva trace/report/timeline por compatibilidad con contenedores mínimos, y puede dejar métricas sin datos; esta limitación sigue siendo explícita.
+El launcher no requiere Python para ejecutar el workflow y conserva el bloqueo por directorio de resultados y la propagación del código de salida. Los informes nativos se escriben en `reportsDir`, por defecto `pipeline_info/` al ejecutar Nextflow directamente; el launcher los separa por invocación. Las métricas GPU siguen publicándose en `pipeline_info/resources/gpu_tasks/`. La configuración HPC conserva trace/report/timeline desactivados por compatibilidad con contenedores mínimos. No hay registros externos de reanudación.
 
 Las utilidades de bases de datos y contenedores se conservan por ser operativas. No se ejecutan durante la lectura del TSV ni durante las verificaciones estáticas.
 

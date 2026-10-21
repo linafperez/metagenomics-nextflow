@@ -2,7 +2,8 @@ process FILTER_CONTIGS {
     tag "${meta.id}"
     label 'process_single'
 
-    container 'python:3.12.11-bookworm'
+    // Official Bash image includes BusyBox awk; Conda declares GNU awk.
+    container 'bash:5.2.37'
     conda "${moduleDir}/environment.yml"
 
     input:
@@ -18,11 +19,15 @@ process FILTER_CONTIGS {
     script:
     def prefix = task.ext.prefix ?: meta.id
     def command = """
-    python3 "${filter_script}" \\
-        --input "${contigs}" \\
-        --output "${prefix}.filtered.fa" \\
-        --stats "${prefix}.contig_filter.tsv" \\
-        --min-length ${minimum_length}
+    export LC_ALL=C
+    if awk -v minimum_length=${minimum_length} \\
+        -v stats_file="${prefix}.contig_filter.tsv" \\
+        -f "${filter_script}" < "${contigs}" > "${prefix}.filtered.fa.partial"; then
+        mv -- "${prefix}.filtered.fa.partial" "${prefix}.filtered.fa"
+    else
+        rm -f -- "${prefix}.filtered.fa.partial"
+        exit 1
+    fi
     """
     command
 

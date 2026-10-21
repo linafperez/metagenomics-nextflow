@@ -167,7 +167,7 @@
       "type": ["string", "null"],
       "description": "Optional Conda environment cache directory."
     },
-    "telemetryDir": {
+    "reportsDir": {
       "type": ["string", "null"],
       "description": "Internal per-invocation directory for native Nextflow trace, report, timeline, and DAG artifacts."
     },

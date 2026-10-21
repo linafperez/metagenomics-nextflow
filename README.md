@@ -38,7 +38,7 @@ Cada `meta` contiene `id`, `biosample_accession`, `group`, `project_accession`, 
 
 La resolución de RunInfo conserva los criterios existentes: pertenencia al BioProject, acceso público con ruta de descarga, biblioteca `PAIRED`, estrategia `WGS`, origen `METAGENOMIC`, plataforma permitida y contadores consistentes. Por defecto se permiten `ILLUMINA,BGISEQ`. Se conservan todos los runs elegibles de cada BioSample y se ordenan por accesión. Un BioSample sin runs elegibles o un run duplicado causa error antes de descargar reads. Los runs excluidos se registran en `pipeline_info/sra_exclusions.tsv`.
 
-Opcionalmente `--sra-run-info /ruta/RunInfo.csv` (`--sraRunInfo` directamente) utiliza un CSV NCBI existente sin consultar metadata por internet. Sigue aplicando la misma validación de elegibilidad. La descarga de reads real requiere después conectividad SRA.
+Opcionalmente `--sra-run-info /ruta/RunInfo.csv` (`--sraRunInfo` directamente) utiliza un CSV NCBI existente sin consultar metadata por internet. Para reproducibilidad, conservar ese CSV congelado junto con su fecha, procedencia y checksum. Sigue aplicando la misma validación de elegibilidad. La descarga de reads real requiere después conectividad SRA.
 
 ### FASTQ locales
 
@@ -141,7 +141,7 @@ La configuración de bases de datos existente debe definir `host_bowtie2_index`,
 
 `bin/prepare_databases.sh` y `bin/prepare_containers.sh` son utilidades operativas conservadas para preparar recursos por separado. Consultar su `--help`. No forman una cola de muestras y no se ejecutan automáticamente para resolver inputs. La adquisición utiliza SRA Toolkit, pigz, Bash y AWK. La receta SRA añade gawk explícitamente: verificar que una imagen previamente cacheada incluya `awk` y reconstruirla si falta. No se construyeron ni descargaron imágenes durante el refactor.
 
-El launcher conserva observadores opcionales de almacenamiento, SLURM y resúmenes de recursos. `--no-resource-telemetry` permite ejecutar sin Python en el host de lanzamiento. Los observadores nunca seleccionan muestras ni deciden qué tareas ejecutar. Sus registros son informativos, no mecanismos de reanudación. Los informes nativos se configuran en `conf/base.config`; se mantiene la desactivación previa de trace/report/timeline en HPC, por lo que algunas métricas pueden no estar disponibles allí.
+El launcher no necesita Python en el host para ejecutar Nextflow. Conserva el bloqueo del directorio de resultados, los códigos de salida y los informes nativos por invocación en `pipeline_info/invocations/`. `reportsDir` controla el destino de trace/report/timeline/DAG nativos; la configuración HPC mantiene trace/report/timeline desactivados. Las métricas GPU siguen publicándose en `pipeline_info/resources/gpu_tasks/` y conservan `--gpu-telemetry-interval`. Las utilidades de preparación de recursos mantienen sus propios requisitos de Python.
 
 ## Resultados y estructura
 
@@ -159,7 +159,7 @@ workflows/          selección de entrada local/SRA
 
 Los directorios de resultados `01_quality_control_and_filtering` a `06_global_processing_evaluation` conservan su estructura. `pipeline_info/` añade la tabla común `sample_metadata.tsv`, `sra_exclusions.tsv`, el RunInfo recuperado y logs SRA; conserva versiones de software e informes de ejecución. Las columnas adicionales del manifest siguen presentes en la tabla de metadata. La tabla larga de abundancia mantiene el contrato científico previo, incluidos `sample_id` y `group`.
 
-Los auxiliares Python restantes, su justificación, la auditoría de archivos retirados y las limitaciones de validación se describen en [docs/refactor_review.md](docs/refactor_review.md). La arquitectura detallada está en [docs/architecture.md](docs/architecture.md); las auditorías de recursos, compresión y capacidades GPU conservan sus referencias científicas.
+Los siete auxiliares Python restantes y la sustitución del filtro FASTA por AWK se documentan en [docs/python_reduction_review.md](docs/python_reduction_review.md). El primer refactor se describe en [docs/refactor_review.md](docs/refactor_review.md). La arquitectura detallada está en [docs/architecture.md](docs/architecture.md); las auditorías de recursos, compresión y capacidades GPU conservan sus referencias científicas.
 
 ## Validación ligera
 
